@@ -1,0 +1,14 @@
+# Local agent/tooling state
+.agents/
+.claude/
+skills-lock.json
+
+# Internal planning/design docs not published in this repo
+.docs/
+docs/
+CLAUDE.md
+CONTEXT.md
+DESIGN.md
+
+# macOS
+.DS_Store
