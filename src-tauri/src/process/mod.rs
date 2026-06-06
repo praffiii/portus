@@ -1,6 +1,4 @@
-use std::ffi::OsString;
-use std::path::PathBuf;
-
+use serde::Serialize;
 use thiserror::Error;
 
 mod controller;
@@ -13,14 +11,14 @@ pub use descendants::descendants_of;
 pub use fake::FakeProcessProbe;
 pub use system::SystemProcessProbe;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub parent_pid: Option<u32>,
-    pub name: OsString,
-    pub command: Vec<OsString>,
-    pub executable: Option<PathBuf>,
-    pub cwd: Option<PathBuf>,
+    pub name: String,
+    pub command: Vec<String>,
+    pub executable: Option<String>,
+    pub cwd: Option<String>,
     pub start_time: u64,
     pub cpu_usage: f32,
     pub memory_bytes: u64,

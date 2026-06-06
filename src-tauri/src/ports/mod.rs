@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use serde::Serialize;
 use thiserror::Error;
 
 mod fake;
@@ -12,19 +13,19 @@ pub use fake::FakePortProbe;
 #[cfg(target_os = "macos")]
 pub use macos::SystemPortProbe;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum Protocol {
     Tcp,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ListenerProcess {
     pub pid: u32,
     pub name: String,
     pub path: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PortListener {
     pub protocol: Protocol,
     pub socket: SocketAddr,
