@@ -1,3 +1,12 @@
+use std::time::Duration;
+
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+#[cfg(target_os = "macos")]
+use std::time::Instant;
+
+pub const TRAY_REOPEN_GUARD: Duration = Duration::from_millis(200);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PopoverAction {
     Create,
@@ -22,15 +31,48 @@ impl PopoverState {
     }
 }
 
+pub fn should_suppress_reopen(
+    action: PopoverAction,
+    elapsed_since_focus_hide: Option<Duration>,
+) -> bool {
+    action == PopoverAction::Show
+        && elapsed_since_focus_hide.is_some_and(|elapsed| elapsed < TRAY_REOPEN_GUARD)
+}
+
 #[cfg(target_os = "macos")]
 const POPOVER_LABEL: &str = "main";
 
 #[cfg(target_os = "macos")]
+#[derive(Default)]
+struct FocusHideGuard {
+    last_hide: Mutex<Option<Instant>>,
+}
+
+#[cfg(target_os = "macos")]
+impl FocusHideGuard {
+    fn arm(&self) {
+        *self
+            .last_hide
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(Instant::now());
+    }
+
+    fn take_elapsed(&self) -> Option<Duration> {
+        self.last_hide
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .map(|instant| instant.elapsed())
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::tray::TrayIconBuilder;
-    use tauri::ActivationPolicy;
+    use tauri::{ActivationPolicy, Manager};
 
     app.set_activation_policy(ActivationPolicy::Accessory);
+    app.manage(FocusHideGuard::default());
 
     let mut tray = TrayIconBuilder::new()
         .tooltip("Portus")
@@ -79,6 +121,10 @@ fn toggle_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
         .transpose()?
         .unwrap_or(false);
     let action = PopoverState.toggle(window.is_some(), visible);
+    let elapsed_since_focus_hide = app.state::<FocusHideGuard>().take_elapsed();
+    if should_suppress_reopen(action, elapsed_since_focus_hide) {
+        return Ok(());
+    }
 
     match action {
         PopoverAction::Create => create_popover(app),
@@ -100,7 +146,8 @@ fn toggle_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[cfg(target_os = "macos")]
 fn create_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::utils::config::WindowConfig;
-    use tauri::{WebviewWindowBuilder, WindowEvent};
+    use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
 
     let config = WindowConfig {
         label: POPOVER_LABEL.to_owned(),
@@ -116,11 +163,20 @@ fn create_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
         ..WindowConfig::default()
     };
     let window = WebviewWindowBuilder::from_config(app, &config)?.build()?;
+    if let Err(error) = apply_vibrancy(
+        &window,
+        NSVisualEffectMaterial::Popover,
+        Some(NSVisualEffectState::Active),
+        Some(12.0),
+    ) {
+        eprintln!("failed to apply Portus popover vibrancy: {error}");
+    }
 
     let app_handle = app.clone();
     let focus_window = window.clone();
     window.on_window_event(move |event| {
         if matches!(event, WindowEvent::Focused(false)) {
+            app_handle.state::<FocusHideGuard>().arm();
             if let Err(error) = hide_popover(&app_handle, &focus_window) {
                 eprintln!("failed to hide Portus popover: {error}");
             }
@@ -153,7 +209,9 @@ fn hide_popover(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri:
 
 #[cfg(test)]
 mod tests {
-    use super::{PopoverAction, PopoverState};
+    use std::time::Duration;
+
+    use super::{should_suppress_reopen, PopoverAction, PopoverState, TRAY_REOPEN_GUARD};
 
     #[test]
     fn first_toggle_creates_the_popover() {
@@ -190,6 +248,23 @@ mod tests {
 
         assert_eq!(state.focus_changed(false), Some(PopoverAction::Hide));
         assert_eq!(state.focus_changed(true), None);
+    }
+
+    #[test]
+    fn recent_focus_loss_suppresses_the_tray_reopen() {
+        assert!(should_suppress_reopen(
+            PopoverAction::Show,
+            Some(TRAY_REOPEN_GUARD - Duration::from_millis(1))
+        ));
+        assert!(!should_suppress_reopen(
+            PopoverAction::Show,
+            Some(TRAY_REOPEN_GUARD)
+        ));
+        assert!(!should_suppress_reopen(
+            PopoverAction::Hide,
+            Some(Duration::ZERO)
+        ));
+        assert!(!should_suppress_reopen(PopoverAction::Show, None));
     }
 
     #[test]

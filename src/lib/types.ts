@@ -1,3 +1,4 @@
+// TODO(T6): replace these hand-written types with tauri-specta-generated types from the Rust snapshot model.
 export type ServiceStatus = "running" | "waiting" | "stopped" | "crashed";
 
 export type PortSource = "system" | "from IDE" | "from Terminal" | "orphan?";

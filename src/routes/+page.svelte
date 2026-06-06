@@ -70,8 +70,8 @@
   :global(:root) {
     --font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --font-mono: "Geist Mono", "SFMono-Regular", Consolas, monospace;
-    --app-bg: #fbfbfd;
-    --surface: #ffffff;
+    --app-bg: rgb(251 251 253 / 72%);
+    --surface: rgb(255 255 255 / 68%);
     --hairline: #e5e7eb;
     --text-primary: #18181b;
     --text-muted: #71717a;
@@ -163,8 +163,8 @@
 
   @media (prefers-color-scheme: dark) {
     :global(:root) {
-      --app-bg: #1c1c1e;
-      --surface: #242427;
+      --app-bg: rgb(28 28 30 / 72%);
+      --surface: rgb(36 36 39 / 68%);
       --hairline: #38383c;
       --text-primary: #f4f4f5;
       --text-muted: #a1a1aa;

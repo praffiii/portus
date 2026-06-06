@@ -2672,6 +2672,7 @@ dependencies = [
  "tauri-specta",
  "thiserror 2.0.18",
  "tokio",
+ "window-vibrancy",
 ]
 
 [[package]]
