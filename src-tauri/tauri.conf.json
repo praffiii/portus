@@ -10,13 +10,8 @@
     "frontendDist": "../build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Portus",
-        "width": 380,
-        "height": 520
-      }
-    ],
+    "macOSPrivateApi": true,
+    "windows": [],
     "security": {
       "csp": null
     }

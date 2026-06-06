@@ -1,45 +1,85 @@
+<script lang="ts">
+  import { Settings } from "@lucide/svelte";
+
+  import DockerList from "$lib/components/DockerList.svelte";
+  import PortList from "$lib/components/PortList.svelte";
+  import { dockerFixtures, portFixtures } from "$lib/fixtures";
+
+  const runningCount =
+    portFixtures.filter((item) => item.status === "running").length +
+    dockerFixtures.filter((item) => item.status === "running").length;
+  const waitingCount =
+    portFixtures.filter((item) => item.status === "waiting").length +
+    dockerFixtures.filter((item) => item.status === "waiting").length;
+</script>
+
 <main class="popover">
   <header class="glance">
-    <div>
-      <p class="eyebrow">Portus</p>
-      <p class="summary">0 running · 0 waiting?</p>
+    <div class="identity">
+      <p class="product">Portus</p>
+      <p class="summary">
+        <span class="running">{runningCount} running</span>
+        <span aria-hidden="true">·</span>
+        <span>{waitingCount} waiting</span>
+      </p>
     </div>
-    <button class="icon-button" type="button" aria-label="Settings">⚙</button>
+    <button class="icon-button" type="button" aria-label="Settings (unavailable)" title="Settings unavailable" disabled>
+      <Settings size={16} strokeWidth={1.8} aria-hidden="true" />
+    </button>
   </header>
 
-  <section aria-labelledby="ports-heading">
-    <h2 id="ports-heading">Ports</h2>
-    <div class="empty-row">
-      <p class="primary">No listening ports yet</p>
-      <p class="secondary">Layer 1 will connect the Rust port scanner.</p>
-    </div>
-  </section>
-
-  <section aria-labelledby="docker-heading">
-    <h2 id="docker-heading">Docker</h2>
-    <div class="empty-row">
-      <p class="primary">Docker not checked yet</p>
-      <p class="secondary">The read-only Docker probe is next.</p>
-    </div>
-  </section>
+  <div class="scroll-body">
+    <PortList ports={portFixtures} />
+    <DockerList containers={dockerFixtures} />
+  </div>
 </main>
 
 <style>
+  @font-face {
+    font-family: "Geist";
+    src: url("/fonts/Geist-Variable.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: "Geist Mono";
+    src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+  }
+
   :global(html),
   :global(body) {
     margin: 0;
-    min-height: 100%;
-    font-family:
-      "Geist",
-      -apple-system,
-      BlinkMacSystemFont,
-      "Segoe UI",
-      sans-serif;
-    color: #18181b;
-    background: #fbfbfd;
+    width: 100%;
+    min-width: 380px;
+    height: 100%;
+    min-height: 520px;
+    overflow: hidden;
+    color: var(--text-primary);
+    background: transparent;
+    font-family: var(--font-ui);
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+  }
+
+  :global(:root) {
+    --font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "Geist Mono", "SFMono-Regular", Consolas, monospace;
+    --app-bg: rgb(251 251 253 / 72%);
+    --surface: rgb(255 255 255 / 68%);
+    --hairline: #e5e7eb;
+    --text-primary: #18181b;
+    --text-muted: #71717a;
+    --accent: #0d9488;
+  }
+
+  :global(*) {
+    box-sizing: border-box;
   }
 
   :global(button) {
@@ -48,117 +88,92 @@
 
   .popover {
     width: 380px;
-    min-height: 520px;
-    background: #fbfbfd;
+    height: 520px;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    color: var(--text-primary);
+    background: var(--app-bg);
   }
 
   .glance {
-    position: sticky;
-    top: 0;
+    position: relative;
+    z-index: 3;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 52px;
+    height: 56px;
     padding: 0 12px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #ffffff;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface);
   }
 
-  .eyebrow,
-  .summary,
-  h2,
-  .primary,
-  .secondary {
+  .product,
+  .summary {
     margin: 0;
   }
 
-  .eyebrow {
+  .identity {
+    min-width: 0;
+  }
+
+  .product {
     font-size: 11px;
     font-weight: 600;
-    color: #71717a;
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
 
   .summary {
+    display: flex;
+    gap: 5px;
     margin-top: 2px;
     font-size: 13px;
     font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .running {
+    color: #15803d;
   }
 
   .icon-button {
     display: grid;
     width: 28px;
     height: 28px;
+    flex: 0 0 28px;
     place-items: center;
-    border: 1px solid #e5e7eb;
+    padding: 0;
+    border: 1px solid transparent;
     border-radius: 6px;
-    color: #18181b;
-    background: #ffffff;
-    cursor: pointer;
+    color: var(--text-muted);
+    background: transparent;
+    cursor: default;
+    opacity: 0.55;
   }
 
-  section {
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  h2 {
-    position: sticky;
-    top: 52px;
-    padding: 8px 12px;
-    border-bottom: 1px solid #e5e7eb;
-    color: #71717a;
-    background: #fbfbfd;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .empty-row {
-    padding: 12px;
-  }
-
-  .primary {
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .secondary {
-    margin-top: 3px;
-    color: #71717a;
-    font-size: 11px;
-    line-height: 1.35;
+  .scroll-body {
+    height: calc(520px - 56px);
+    max-height: calc(520px - 56px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   @media (prefers-color-scheme: dark) {
-    :global(html),
-    :global(body),
-    .popover {
-      color: #f4f4f5;
-      background: #1c1c1e;
+    :global(:root) {
+      --app-bg: rgb(28 28 30 / 72%);
+      --surface: rgb(36 36 39 / 68%);
+      --hairline: #38383c;
+      --text-primary: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --accent: #2dd4bf;
     }
 
-    .glance,
-    .icon-button {
-      color: #f4f4f5;
-      border-color: #38383c;
-      background: #242427;
-    }
-
-    section,
-    h2 {
-      border-color: #38383c;
-    }
-
-    h2 {
-      background: #1c1c1e;
-    }
-
-    .eyebrow,
-    h2,
-    .secondary {
-      color: #a1a1aa;
+    .running {
+      color: #4ade80;
     }
   }
+
 </style>
