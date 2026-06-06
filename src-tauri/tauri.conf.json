@@ -10,13 +10,7 @@
     "frontendDist": "../build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Portus",
-        "width": 380,
-        "height": 520
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
