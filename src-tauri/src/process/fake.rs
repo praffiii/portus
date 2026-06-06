@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 
 use super::{ProcessError, ProcessInfo, ProcessProbe, ProcessSignal, ProcessSnapshot};
@@ -97,7 +96,7 @@ fn process_info(pid: u32) -> ProcessInfo {
     ProcessInfo {
         pid,
         parent_pid: None,
-        name: OsString::from(format!("fake-{pid}")),
+        name: format!("fake-{pid}"),
         command: Vec::new(),
         executable: None,
         cwd: None,

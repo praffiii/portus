@@ -1,17 +1,20 @@
 pub mod ports;
 pub mod process;
-
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+pub mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![state::set_active, state::set_idle]);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.setup(|app| {
+        state::start(app.handle().clone());
+        Ok(())
+    });
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
