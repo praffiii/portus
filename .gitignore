@@ -7,8 +7,25 @@ skills-lock.json
 .docs/
 docs/
 CLAUDE.md
+AGENTS.md
 CONTEXT.md
 DESIGN.md
 
 # macOS
 .DS_Store
+
+# Node / SvelteKit
+node_modules
+/build
+/.svelte-kit
+/package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri
+src-tauri/target/
+
+# Local env
+.env
+.env.*
+!.env.example
