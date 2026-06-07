@@ -19,14 +19,30 @@
           <div class="primary">
             <span class="name" title={container.name}>{container.name}</span>
             {#if container.ports.length > 0}
-              <span class="ports">:{container.ports.join(", :")}</span>
+              <span class:ports-muted={container.status !== "running"} class="ports">:{container.ports.join(", :")}</span>
             {/if}
           </div>
           <div class="secondary" title={`${container.image} · ${container.detail}`}>
             <span class="image">{container.image}</span>
-            <span aria-hidden="true">·</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
             <span class="detail">{container.detail}</span>
           </div>
+        </div>
+        <!-- Presentational until container start/stop commands are wired. -->
+        <div class="row-actions">
+          {#if container.status === "running"}
+            <button class="act-btn kill" type="button" title="Stop container (unavailable)" aria-label={`Stop ${container.name} (unavailable)`} disabled>
+              <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
+              </svg>
+            </button>
+          {:else}
+            <button class="act-btn start" type="button" title="Start container (unavailable)" aria-label={`Start ${container.name} (unavailable)`} disabled>
+              <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                <path d="M2.5 1.5 L10.5 6 L2.5 10.5 Z" />
+              </svg>
+            </button>
+          {/if}
         </div>
       </li>
     {/each}
@@ -69,7 +85,7 @@
 
   li {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr);
+    grid-template-columns: 16px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
     min-height: 54px;
@@ -83,7 +99,57 @@
   }
 
   li:hover {
-    background: var(--surface);
+    background: var(--surface-hi);
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+
+  li:hover .row-actions,
+  li:focus-within .row-actions {
+    opacity: 1;
+  }
+
+  .act-btn {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: default;
+    transition:
+      color 100ms ease,
+      background 100ms ease,
+      border-color 100ms ease;
+  }
+
+  .act-btn.start {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .act-btn:disabled {
+    opacity: 0.7;
+  }
+
+  .ports-muted {
+    color: var(--stopped);
+  }
+
+  .sec-dot {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    opacity: 0.7;
+    user-select: none;
   }
 
   .details {
@@ -120,17 +186,17 @@
   }
 
   .secondary {
-    gap: 5px;
+    gap: 4px;
     margin-top: 3px;
     overflow: hidden;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.25;
     white-space: nowrap;
   }
 
   .image {
-    min-width: 24px;
+    min-width: 20px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -140,7 +206,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    li {
+    li,
+    .row-actions,
+    .act-btn {
       transition: none;
     }
   }
