@@ -7,7 +7,7 @@ mod descendants;
 mod fake;
 mod system;
 
-pub use controller::ProcessController;
+pub use controller::{KillTarget, ProcessController};
 pub use descendants::descendants_of;
 pub use fake::FakeProcessProbe;
 pub use system::SystemProcessProbe;
@@ -43,6 +43,10 @@ pub enum ProcessError {
     Inspect(String),
     #[error("process {0} is no longer running")]
     NotFound(u32),
+    #[error("process {pid} no longer matches the selected row")]
+    IdentityMismatch { pid: u32 },
+    #[error("process {pid} no longer owns port {port}")]
+    PortOwnerMismatch { pid: u32, port: u16 },
     #[error("failed to send {signal:?} to process {pid}")]
     SignalFailed { pid: u32, signal: ProcessSignal },
     #[error("processes are still running after signal escalation: {0:?}")]

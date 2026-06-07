@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use super::{ProcessError, ProcessInfo, ProcessProbe, ProcessSignal, ProcessSnapshot};
@@ -14,6 +14,7 @@ struct FakeProcessState {
     last_alive: HashSet<u32>,
     signal_results: Vec<(u32, ProcessSignal, bool)>,
     signals: Vec<(u32, ProcessSignal)>,
+    process_infos: HashMap<u32, ProcessInfo>,
 }
 
 impl FakeProcessProbe {
@@ -31,6 +32,7 @@ impl FakeProcessProbe {
                 last_alive,
                 signal_results: Vec::new(),
                 signals: Vec::new(),
+                process_infos: HashMap::new(),
             })),
         }
     }
@@ -41,6 +43,15 @@ impl FakeProcessProbe {
             .expect("fake process probe lock poisoned")
             .signal_results
             .push((pid, signal, result));
+        self
+    }
+
+    pub fn with_process_info(self, pid: u32, info: ProcessInfo) -> Self {
+        self.state
+            .lock()
+            .expect("fake process probe lock poisoned")
+            .process_infos
+            .insert(pid, info);
         self
     }
 
@@ -64,7 +75,13 @@ impl ProcessProbe for FakeProcessProbe {
             .iter()
             .copied()
             .filter(|pid| state.last_alive.contains(pid))
-            .map(process_info)
+            .map(|pid| {
+                state
+                    .process_infos
+                    .get(&pid)
+                    .cloned()
+                    .unwrap_or_else(|| process_info(pid))
+            })
             .collect())
     }
 
@@ -98,7 +115,7 @@ fn process_info(pid: u32) -> ProcessInfo {
         parent_pid: None,
         name: format!("fake-{pid}"),
         command: Vec::new(),
-        executable: None,
+        executable: Some("/fake".to_string()),
         cwd: None,
         start_time: 1,
         cpu_usage: 0.0,
