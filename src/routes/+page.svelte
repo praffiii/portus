@@ -9,6 +9,9 @@
   import { snapshotFixture } from "$lib/fixtures";
   import { containersToDockerRows, snapshotToPortRows, type PortRowView } from "$lib/snapshot-adapter";
 
+  const BLUR_IDLE_DELAY_MS = 200;
+  const ACTIVE_SAFETY_IDLE_MS = 30_000;
+
   let snapshot: Snapshot = $state(snapshotFixture);
   let portActionStates: Record<string, PortActionState> = $state({});
   const ports = $derived(snapshotToPortRows(snapshot));
@@ -27,6 +30,48 @@
 
     let disposed = false;
     let stopListening: (() => void) | undefined;
+    let blurIdleTimer: ReturnType<typeof setTimeout> | undefined;
+    let safetyIdleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearBlurIdle = () => {
+      if (blurIdleTimer) clearTimeout(blurIdleTimer);
+      blurIdleTimer = undefined;
+    };
+
+    const clearSafetyIdle = () => {
+      if (safetyIdleTimer) clearTimeout(safetyIdleTimer);
+      safetyIdleTimer = undefined;
+    };
+
+    const setIdle = () => {
+      clearBlurIdle();
+      clearSafetyIdle();
+      void commands.setIdle();
+    };
+
+    const armSafetyIdle = () => {
+      clearSafetyIdle();
+      safetyIdleTimer = setTimeout(setIdle, ACTIVE_SAFETY_IDLE_MS);
+    };
+
+    const setActive = () => {
+      clearBlurIdle();
+      void commands.setActive();
+      armSafetyIdle();
+    };
+
+    const scheduleIdle = () => {
+      clearBlurIdle();
+      blurIdleTimer = setTimeout(setIdle, BLUR_IDLE_DELAY_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && document.hasFocus()) {
+        setActive();
+      } else {
+        scheduleIdle();
+      }
+    };
 
     void events.snapshot.listen((event) => {
       snapshot = event.payload;
@@ -37,12 +82,18 @@
         stopListening = unlisten;
       }
     });
-    void commands.setActive();
+    window.addEventListener("focus", setActive);
+    window.addEventListener("blur", scheduleIdle);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    setActive();
 
     return () => {
       disposed = true;
+      window.removeEventListener("focus", setActive);
+      window.removeEventListener("blur", scheduleIdle);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopListening?.();
-      void commands.setIdle();
+      setIdle();
     };
   });
 
