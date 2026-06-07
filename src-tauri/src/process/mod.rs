@@ -1,4 +1,5 @@
 use serde::Serialize;
+use specta::Type;
 use thiserror::Error;
 
 mod controller;
@@ -11,7 +12,7 @@ pub use descendants::descendants_of;
 pub use fake::FakeProcessProbe;
 pub use system::SystemProcessProbe;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub parent_pid: Option<u32>,

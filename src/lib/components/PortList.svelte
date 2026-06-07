@@ -1,8 +1,8 @@
 <script lang="ts">
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { PortItem, PortSource } from "$lib/types";
+  import type { PortRow, PortSource } from "$lib/snapshot-adapter";
 
-  let { ports }: { ports: PortItem[] } = $props();
+  let { ports }: { ports: PortRow[] } = $props();
 
   const sourceClass: Record<PortSource, string> = {
     system: "source-system",

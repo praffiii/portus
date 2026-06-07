@@ -29,6 +29,7 @@ thiserror = "2.0.18"
 tauri-plugin-positioner = { version = "2.3.2", features = ["tray-icon"] }
 specta = "2.0.0-rc.25"
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
+specta-typescript = "0.0.12"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "time", "sync"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -36,3 +37,4 @@ window-vibrancy = "0.6.0"
 
 [dev-dependencies]
 libc = "0.2.186"
+tempfile = "3"
