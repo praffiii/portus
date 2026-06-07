@@ -1,5 +1,6 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -15,6 +16,7 @@ use crate::process::{KillTarget, ProcessController, ProcessError, ProcessInfo, P
 pub const SNAPSHOT_EVENT: &str = "snapshot";
 pub const ACTIVE_INTERVAL: Duration = Duration::from_secs(2);
 pub const IDLE_INTERVAL: Duration = Duration::from_secs(8);
+pub const DOCKER_POLL_TIMEOUT: Duration = Duration::from_millis(1_500);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PollMode {
@@ -96,6 +98,8 @@ pub struct SnapshotBuilder<P, Q, R> {
     port_probe: P,
     process_probe: Q,
     docker_probe: DockerProbe<R>,
+    docker_in_flight: AtomicBool,
+    last_docker: Mutex<SnapshotSection<DockerSnapshot>>,
 }
 
 impl<P, Q, R> SnapshotBuilder<P, Q, R>
@@ -109,6 +113,11 @@ where
             port_probe,
             process_probe,
             docker_probe: DockerProbe::new(docker_backend),
+            docker_in_flight: AtomicBool::new(false),
+            last_docker: Mutex::new(SnapshotSection {
+                data: DockerSnapshot::default(),
+                error: None,
+            }),
         }
     }
 
@@ -118,13 +127,7 @@ where
     }
 
     pub async fn poll(&self) -> Snapshot {
-        let docker = match self.docker_probe.snapshot().await {
-            Ok(data) => SnapshotSection { data, error: None },
-            Err(error) => SnapshotSection {
-                data: DockerSnapshot::default(),
-                error: Some(error.to_string()),
-            },
-        };
+        let docker = self.poll_docker_single_flight().await;
         let published_ports = published_container_ports(&docker.data);
         let ports = isolated_probe("port", || {
             self.port_probe.scan().map(|listeners| {
@@ -148,6 +151,41 @@ where
             processes,
             docker,
         }
+    }
+
+    async fn poll_docker_single_flight(&self) -> SnapshotSection<DockerSnapshot> {
+        if self.docker_in_flight.swap(true, Ordering::AcqRel) {
+            return self.last_docker();
+        }
+
+        let result = tokio::time::timeout(DOCKER_POLL_TIMEOUT, self.docker_probe.snapshot()).await;
+        self.docker_in_flight.store(false, Ordering::Release);
+
+        let docker = match result {
+            Ok(Ok(data)) => SnapshotSection { data, error: None },
+            Ok(Err(error)) => SnapshotSection {
+                data: DockerSnapshot::default(),
+                error: Some(error.to_string()),
+            },
+            Err(_) => {
+                let mut last = self.last_docker();
+                last.error = Some("Docker probe timed out".to_string());
+                return last;
+            }
+        };
+
+        *self
+            .last_docker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = docker.clone();
+        docker
+    }
+
+    fn last_docker(&self) -> SnapshotSection<DockerSnapshot> {
+        self.last_docker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 }
 

@@ -2,7 +2,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use portus_lib::docker::{DockerBackendError, FakeDockerBackend, RawContainer};
+use portus_lib::docker::{
+    DockerBackend, DockerBackendError, DockerFuture, FakeDockerBackend, RawContainer,
+};
 use portus_lib::ports::{
     AddressFamily, BindScope, FakePortProbe, ListenerProcess, PortListener, PortOwner, PortProbe,
     PortProbeError, PortRow, Protocol,
@@ -12,7 +14,7 @@ use portus_lib::process::{
 };
 use portus_lib::state::{
     run_poll_loop, KillProcessError, PollMode, PollState, SnapshotBuilder, SnapshotEmitter,
-    SNAPSHOT_EVENT,
+    DOCKER_POLL_TIMEOUT, SNAPSHOT_EVENT,
 };
 use serde_json::json;
 
@@ -120,6 +122,58 @@ async fn docker_proxy_listener_is_reconciled_into_the_container_row() {
     assert_eq!(snapshot.docker.data.containers[0].names, vec!["/web"]);
     assert_eq!(snapshot.ports.data, vec![port_row(5173, 42)]);
     assert_eq!(snapshot.processes.data.len(), 1);
+}
+
+#[tokio::test]
+async fn overlapping_polls_do_not_start_overlapping_docker_calls() {
+    let backend = BlockingDockerBackend::default();
+    let started = backend.started.clone();
+    let calls = backend.calls.clone();
+    let builder = Arc::new(SnapshotBuilder::new(
+        FakePortProbe::new(vec![]),
+        FakeProcessProbe::new(vec![], vec![vec![], vec![]]),
+        backend,
+    ));
+
+    let first = tokio::spawn({
+        let builder = builder.clone();
+        async move { builder.poll().await }
+    });
+    started.notified().await;
+    let second = builder.poll().await;
+
+    assert_eq!(second.docker.data.containers.len(), 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    first.abort();
+}
+
+#[tokio::test]
+async fn slow_docker_poll_times_out_without_stalling_snapshot() {
+    let backend = BlockingDockerBackend::default();
+    let calls = backend.calls.clone();
+    let builder = SnapshotBuilder::new(
+        FakePortProbe::new(vec![listener(3000, 42)]),
+        FakeProcessProbe::new(
+            vec![ProcessSnapshot {
+                pid: 42,
+                parent_pid: None,
+            }],
+            vec![vec![42]],
+        ),
+        backend,
+    );
+
+    let started = std::time::Instant::now();
+    let snapshot = builder.poll().await;
+
+    assert!(started.elapsed() < DOCKER_POLL_TIMEOUT + Duration::from_millis(500));
+    assert_eq!(
+        snapshot.docker.error.as_deref(),
+        Some("Docker probe timed out")
+    );
+    assert_eq!(snapshot.ports.data, vec![port_row(3000, 42)]);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -286,6 +340,22 @@ impl ProcessProbe for PanickingProcessProbe {
 
 struct RecordingProcessProbe {
     requested: Arc<Mutex<Vec<u32>>>,
+}
+
+#[derive(Clone, Default)]
+struct BlockingDockerBackend {
+    calls: Arc<AtomicUsize>,
+    started: Arc<tokio::sync::Notify>,
+}
+
+impl DockerBackend for BlockingDockerBackend {
+    fn list_all(&self) -> DockerFuture<'_, Result<Vec<RawContainer>, DockerBackendError>> {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.started.notify_waiters();
+            std::future::pending().await
+        })
+    }
 }
 
 impl ProcessProbe for RecordingProcessProbe {
