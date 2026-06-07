@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
+use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_specta::Event;
 use tokio::sync::watch;
 
 use crate::ports::{PortListener, PortProbe};
@@ -60,13 +62,14 @@ impl PollState {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
 pub struct SnapshotSection<T> {
     pub data: T,
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Type, Event)]
+#[tauri_specta(event_name = "snapshot")]
 pub struct Snapshot {
     pub ports: SnapshotSection<Vec<PortListener>>,
     pub processes: SnapshotSection<Vec<ProcessInfo>>,
@@ -137,11 +140,13 @@ pub async fn run_poll_loop<P, Q, E>(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_active(state: State<'_, PollState>) {
     state.set_active();
 }
 
 #[tauri::command]
+#[specta::specta]
 pub fn set_idle(state: State<'_, PollState>) {
     state.set_idle();
 }

@@ -1,16 +1,49 @@
 <script lang="ts">
+  import { isTauri } from "@tauri-apps/api/core";
   import { Settings } from "@lucide/svelte";
+  import { onMount } from "svelte";
 
+  import { commands, events, type Snapshot } from "$lib/bindings";
   import DockerList from "$lib/components/DockerList.svelte";
   import PortList from "$lib/components/PortList.svelte";
-  import { dockerFixtures, portFixtures } from "$lib/fixtures";
+  import { dockerFixtures, snapshotFixture } from "$lib/fixtures";
+  import { containersToDockerRows, snapshotToPortRows } from "$lib/snapshot-adapter";
 
-  const runningCount =
-    portFixtures.filter((item) => item.status === "running").length +
-    dockerFixtures.filter((item) => item.status === "running").length;
-  const waitingCount =
-    portFixtures.filter((item) => item.status === "waiting").length +
-    dockerFixtures.filter((item) => item.status === "waiting").length;
+  let snapshot: Snapshot = $state(snapshotFixture);
+  const ports = $derived(snapshotToPortRows(snapshot));
+  const containers = containersToDockerRows(dockerFixtures);
+  const runningCount = $derived(
+    ports.filter((item) => item.status === "running").length +
+      containers.filter((item) => item.status === "running").length
+  );
+  const waitingCount = $derived(
+    ports.filter((item) => item.status === "waiting").length +
+      containers.filter((item) => item.status === "waiting").length
+  );
+
+  onMount(() => {
+    if (!isTauri()) return;
+
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+
+    void events.snapshot.listen((event) => {
+      snapshot = event.payload;
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        stopListening = unlisten;
+      }
+    });
+    void commands.setActive();
+
+    return () => {
+      disposed = true;
+      stopListening?.();
+      void commands.setIdle();
+    };
+  });
 </script>
 
 <main class="popover">
@@ -29,8 +62,8 @@
   </header>
 
   <div class="scroll-body">
-    <PortList ports={portFixtures} />
-    <DockerList containers={dockerFixtures} />
+    <PortList {ports} />
+    <DockerList {containers} />
   </div>
 </main>
 

@@ -11,6 +11,7 @@ use bollard::errors::Error as BollardError;
 use bollard::query_parameters::ListContainersOptionsBuilder;
 use bollard::{Docker, API_DEFAULT_VERSION};
 use serde::Serialize;
+use specta::Type;
 use thiserror::Error;
 
 mod fake;
@@ -28,7 +29,7 @@ pub struct RawContainer {
     pub status: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Type)]
 pub struct DockerContainer {
     pub id: String,
     pub names: Vec<String>,
@@ -49,14 +50,14 @@ impl From<RawContainer> for DockerContainer {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum DockerStatus {
     Detected,
     NotDetected,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Type)]
 pub struct DockerSnapshot {
     pub status: DockerStatus,
     pub containers: Vec<DockerContainer>,

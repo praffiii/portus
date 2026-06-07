@@ -1,68 +1,69 @@
-import type { DockerItem, PortItem } from "$lib/types";
+import type { DockerContainer, Snapshot } from "$lib/bindings";
 
-export const portFixtures: PortItem[] = [
-  {
-    port: 3000,
-    process: "web",
-    source: "from IDE",
-    status: "running",
-    pid: 18420,
-    cpuPercent: 2.4,
-    memoryMb: 148,
-    cwd: "~/code/portus-web"
+export const snapshotFixture: Snapshot = {
+  ports: {
+    error: null,
+    data: [
+      { protocol: "Tcp", socket: "127.0.0.1:3000", process: { pid: 18420, name: "web", path: "/Applications/Visual Studio Code.app/web" } },
+      { protocol: "Tcp", socket: "127.0.0.1:8080", process: { pid: 18704, name: "api", path: "/Applications/Terminal.app/api" } },
+      { protocol: "Tcp", socket: "127.0.0.1:5432", process: { pid: 612, name: "postgres", path: "/opt/homebrew/bin/postgres" } }
+    ]
   },
-  {
-    port: 8080,
-    process: "api",
-    source: "from Terminal",
-    status: "running",
-    pid: 18704,
-    cpuPercent: 0.8,
-    memoryMb: 92,
-    cwd: "~/code/portus-api"
-  },
-  {
-    port: 5432,
-    process: "postgres",
-    source: "system",
-    status: "running",
-    pid: 612,
-    cpuPercent: 0.1,
-    memoryMb: 76,
-    cwd: "/opt/homebrew/var/postgresql@16"
-  },
-  {
-    port: null,
-    process: "migration-worker",
-    source: "orphan?",
-    status: "waiting",
-    pid: 19117,
-    cpuPercent: 0,
-    memoryMb: 44,
-    cwd: "~/code/portus-api/workers"
+  processes: {
+    error: null,
+    data: [
+      processFixture(18420, "web", 2.4, 148, "~/code/portus-web", "/Applications/Visual Studio Code.app/web"),
+      processFixture(18704, "api", 0.8, 92, "~/code/portus-api", "/Applications/Terminal.app/api"),
+      processFixture(612, "postgres", 0.1, 76, "/opt/homebrew/var/postgresql@16", "/opt/homebrew/bin/postgres"),
+      {
+        ...processFixture(19117, "migration-worker", 0, 44, "~/code/portus-api/workers", null),
+        command: ["orphan?"]
+      }
+    ]
   }
-];
+};
 
-export const dockerFixtures: DockerItem[] = [
+export const dockerFixtures: DockerContainer[] = [
   {
-    name: "portus-redis",
+    id: "redis",
+    names: ["/portus-redis"],
     image: "redis:7-alpine",
-    status: "running",
-    detail: "Up 2 hours",
-    ports: [6379]
+    state: "running",
+    status: "Up 2 hours, 0.0.0.0:6379->6379/tcp"
   },
   {
-    name: "portus-postgres",
+    id: "postgres",
+    names: ["/portus-postgres"],
     image: "postgres:16-alpine",
-    status: "running",
-    detail: "Up 2 hours (healthy)",
-    ports: [5433]
+    state: "running",
+    status: "Up 2 hours (healthy), 0.0.0.0:5433->5432/tcp"
   },
   {
-    name: "docs-preview",
+    id: "docs",
+    names: ["/docs-preview"],
     image: "nginx:1.27-alpine",
-    status: "stopped",
-    detail: "Exited (0) 3 hours ago",
-    ports: [9000]
+    state: "exited",
+    status: "Exited (0) 3 hours ago, 0.0.0.0:9000->80/tcp"
   }
 ];
+
+function processFixture(
+  pid: number,
+  name: string,
+  cpuUsage: number,
+  memoryMb: number,
+  cwd: string | null,
+  executable: string | null
+) {
+  return {
+    pid,
+    parent_pid: null,
+    name,
+    command: [],
+    executable,
+    cwd,
+    start_time: 0,
+    cpu_usage: cpuUsage,
+    memory_bytes: memoryMb * 1024 * 1024
+  };
+}

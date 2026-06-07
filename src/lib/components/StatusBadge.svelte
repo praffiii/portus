@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ServiceStatus } from "$lib/types";
+  import type { ServiceStatus } from "$lib/snapshot-adapter";
 
   let { status }: { status: ServiceStatus } = $props();
 
