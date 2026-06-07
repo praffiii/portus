@@ -1,15 +1,8 @@
 <script lang="ts">
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { PortRow, PortSource } from "$lib/snapshot-adapter";
+  import type { PortRow } from "$lib/snapshot-adapter";
 
   let { ports }: { ports: PortRow[] } = $props();
-
-  const sourceClass: Record<PortSource, string> = {
-    system: "source-system",
-    "from IDE": "source-ide",
-    "from Terminal": "source-terminal",
-    "orphan?": "source-orphan"
-  };
 </script>
 
 <section aria-labelledby="ports-heading">
@@ -26,17 +19,25 @@
         <div class="details">
           <div class="primary">
             <span class="process" title={item.process}>{item.process}</span>
-            <span class={`source ${sourceClass[item.source]}`}>{item.source}</span>
+            <span class="source" class:source-orphan={item.source === "orphan?"}>{item.source}</span>
           </div>
-          <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent}% CPU · ${item.memoryMb} MB`}>
+          <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent.toFixed(1)}% CPU · ${item.memoryMb} MB`}>
             <span class="cwd">{item.cwd}</span>
-            <span aria-hidden="true">·</span>
-            <span class="metric">PID {item.pid}</span>
-            <span aria-hidden="true">·</span>
-            <span class="metric">{item.cpuPercent}% CPU</span>
-            <span aria-hidden="true">·</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
+            <span class="metric">{item.pid}</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
+            <span class="metric">{item.cpuPercent.toFixed(1)}%</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
             <span class="metric">{item.memoryMb} MB</span>
           </div>
+        </div>
+        <!-- Presentational until the kill command is wired to the frontend (see-kill). -->
+        <div class="row-actions">
+          <button class="act-btn kill" type="button" title="Kill process (unavailable)" aria-label={`Kill ${item.process} (unavailable)`} disabled>
+            <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
+            </svg>
+          </button>
         </div>
       </li>
     {/each}
@@ -79,7 +80,7 @@
 
   li {
     display: grid;
-    grid-template-columns: 16px 54px minmax(0, 1fr);
+    grid-template-columns: 16px 52px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
     min-height: 54px;
@@ -94,7 +95,48 @@
   }
 
   li:hover {
-    background: var(--surface);
+    background: var(--surface-hi);
+  }
+
+  .sec-dot {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    opacity: 0.7;
+    user-select: none;
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+
+  li:hover .row-actions,
+  li:focus-within .row-actions {
+    opacity: 1;
+  }
+
+  .act-btn {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: default;
+    transition:
+      color 100ms ease,
+      background 100ms ease,
+      border-color 100ms ease;
+  }
+
+  .act-btn:disabled {
+    opacity: 0.7;
   }
 
   .port,
@@ -137,71 +179,47 @@
     white-space: nowrap;
   }
 
+  /* Source tags are best-effort hints, not ground truth — so they stay quiet and uniform. */
   .source {
     flex: 0 0 auto;
+    color: var(--text-muted);
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 400;
     white-space: nowrap;
   }
 
-  .source-system {
-    color: #6b7280;
-  }
-
-  .source-ide {
-    color: #7c3aed;
-  }
-
-  .source-terminal {
-    color: #475569;
-  }
-
   .source-orphan {
-    color: #d97706;
+    font-style: italic;
   }
 
   .secondary {
     display: flex;
     min-width: 0;
-    gap: 5px;
+    gap: 4px;
     margin-top: 3px;
     overflow: hidden;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.25;
     white-space: nowrap;
   }
 
   .cwd {
-    min-width: 24px;
+    min-width: 20px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .metric {
     flex: 0 0 auto;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .source-system {
-      color: #9ca3af;
-    }
-
-    .source-ide {
-      color: #a78bfa;
-    }
-
-    .source-terminal {
-      color: #94a3b8;
-    }
-
-    .source-orphan {
-      color: #fbbf24;
-    }
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    li {
+    li,
+    .row-actions,
+    .act-btn {
       transition: none;
     }
   }
