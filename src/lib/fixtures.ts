@@ -1,12 +1,12 @@
-import type { DockerContainer, Snapshot } from "$lib/bindings";
+import type { DockerContainer, PortRow, Snapshot } from "$lib/bindings";
 
 export const snapshotFixture: Snapshot = {
   ports: {
     error: null,
     data: [
-      { protocol: "Tcp", socket: "127.0.0.1:3000", process: { pid: 18420, name: "web", path: "/Applications/Visual Studio Code.app/web" } },
-      { protocol: "Tcp", socket: "127.0.0.1:8080", process: { pid: 18704, name: "api", path: "/Applications/Terminal.app/api" } },
-      { protocol: "Tcp", socket: "127.0.0.1:5432", process: { pid: 612, name: "postgres", path: "/opt/homebrew/bin/postgres" } }
+      portRow(3000, 18420, "web", "/Applications/Visual Studio Code.app/web"),
+      portRow(8080, 18704, "api", "/Applications/Terminal.app/api"),
+      portRow(5432, 612, "postgres", "/opt/homebrew/bin/postgres")
     ]
   },
   processes: {
@@ -14,11 +14,7 @@ export const snapshotFixture: Snapshot = {
     data: [
       processFixture(18420, "web", 2.4, 148, "~/code/portus-web", "/Applications/Visual Studio Code.app/web"),
       processFixture(18704, "api", 0.8, 92, "~/code/portus-api", "/Applications/Terminal.app/api"),
-      processFixture(612, "postgres", 0.1, 76, "/opt/homebrew/var/postgresql@16", "/opt/homebrew/bin/postgres"),
-      {
-        ...processFixture(19117, "migration-worker", 0, 44, "~/code/portus-api/workers", null),
-        command: ["orphan?"]
-      }
+      processFixture(612, "postgres", 0.1, 76, "/opt/homebrew/var/postgresql@16", "/opt/homebrew/bin/postgres")
     ]
   }
 };
@@ -46,6 +42,18 @@ export const dockerFixtures: DockerContainer[] = [
     status: "Exited (0) 3 hours ago, 0.0.0.0:9000->80/tcp"
   }
 ];
+
+function portRow(port: number, pid: number, name: string, path: string): PortRow {
+  return {
+    protocol: "Tcp",
+    port,
+    scope: "Loopback",
+    specific_addr: null,
+    families: ["V4"],
+    owners: [{ pid, name, path }],
+    key: `tcp|loopback|${port}|${pid}`
+  };
+}
 
 function processFixture(
   pid: number,

@@ -1,8 +1,8 @@
 <script lang="ts">
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { PortRow } from "$lib/snapshot-adapter";
+  import type { PortRowView, PortSource } from "$lib/snapshot-adapter";
 
-  let { ports }: { ports: PortRow[] } = $props();
+  let { ports }: { ports: PortRowView[] } = $props();
 </script>
 
 <section aria-labelledby="ports-heading">
@@ -12,10 +12,10 @@
   </div>
 
   <ul>
-    {#each ports as item (`${item.pid}:${item.port ?? "none"}`)}
+    {#each ports as item (item.key)}
       <li>
         <StatusBadge status={item.status} />
-        <span class:port-muted={item.port === null} class="port">{item.port === null ? "—" : `:${item.port}`}</span>
+        <span class="port">:{item.port}</span>
         <div class="details">
           <div class="primary">
             <span class="process" title={item.process}>{item.process}</span>
@@ -152,10 +152,6 @@
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .port-muted {
-    color: var(--text-muted);
   }
 
   .details {
