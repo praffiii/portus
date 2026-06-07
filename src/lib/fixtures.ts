@@ -1,4 +1,4 @@
-import type { DockerContainer, PortRow, Snapshot } from "$lib/bindings";
+import type { PortRow, Snapshot } from "$lib/bindings";
 
 export const snapshotFixture: Snapshot = {
   ports: {
@@ -16,32 +16,37 @@ export const snapshotFixture: Snapshot = {
       processFixture(18704, "api", 0.8, 92, "~/code/portus-api", "/Applications/Terminal.app/api"),
       processFixture(612, "postgres", 0.1, 76, "/opt/homebrew/var/postgresql@16", "/opt/homebrew/bin/postgres")
     ]
+  },
+  docker: {
+    error: null,
+    data: {
+      status: "detected",
+      containers: [
+        {
+          id: "redis",
+          names: ["/portus-redis"],
+          image: "redis:7-alpine",
+          state: "running",
+          status: "Up 2 hours, 0.0.0.0:6379->6379/tcp"
+        },
+        {
+          id: "postgres",
+          names: ["/portus-postgres"],
+          image: "postgres:16-alpine",
+          state: "running",
+          status: "Up 2 hours (healthy), 0.0.0.0:5433->5432/tcp"
+        },
+        {
+          id: "docs",
+          names: ["/docs-preview"],
+          image: "nginx:1.27-alpine",
+          state: "exited",
+          status: "Exited (0) 3 hours ago, 0.0.0.0:9000->80/tcp"
+        }
+      ]
+    }
   }
 };
-
-export const dockerFixtures: DockerContainer[] = [
-  {
-    id: "redis",
-    names: ["/portus-redis"],
-    image: "redis:7-alpine",
-    state: "running",
-    status: "Up 2 hours, 0.0.0.0:6379->6379/tcp"
-  },
-  {
-    id: "postgres",
-    names: ["/portus-postgres"],
-    image: "postgres:16-alpine",
-    state: "running",
-    status: "Up 2 hours (healthy), 0.0.0.0:5433->5432/tcp"
-  },
-  {
-    id: "docs",
-    names: ["/docs-preview"],
-    image: "nginx:1.27-alpine",
-    state: "exited",
-    status: "Exited (0) 3 hours ago, 0.0.0.0:9000->80/tcp"
-  }
-];
 
 function portRow(port: number, pid: number, name: string, path: string): PortRow {
   return {

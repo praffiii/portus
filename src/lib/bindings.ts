@@ -67,6 +67,7 @@ export type Protocol = "Tcp";
 export type Snapshot = {
 	ports: SnapshotSection<PortRow[]>,
 	processes: SnapshotSection<ProcessInfo[]>,
+	docker: SnapshotSection<DockerSnapshot>,
 };
 
 export type SnapshotSection<T> = {

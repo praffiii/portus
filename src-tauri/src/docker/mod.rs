@@ -50,14 +50,15 @@ impl From<RawContainer> for DockerContainer {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Type)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum DockerStatus {
     Detected,
+    #[default]
     NotDetected,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Type)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Type)]
 pub struct DockerSnapshot {
     pub status: DockerStatus,
     pub containers: Vec<DockerContainer>,

@@ -137,6 +137,10 @@ mod tests {
                 data: vec![process],
                 error: None,
             },
+            docker: SnapshotSection {
+                data: Default::default(),
+                error: None,
+            },
         };
 
         let value = serde_json::to_value(snapshot).expect("lossy strings must serialize");
