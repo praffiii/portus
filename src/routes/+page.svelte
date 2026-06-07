@@ -5,11 +5,12 @@
 
   import { commands, events, type Snapshot } from "$lib/bindings";
   import DockerList from "$lib/components/DockerList.svelte";
-  import PortList from "$lib/components/PortList.svelte";
+  import PortList, { type PortActionState } from "$lib/components/PortList.svelte";
   import { snapshotFixture } from "$lib/fixtures";
-  import { containersToDockerRows, snapshotToPortRows } from "$lib/snapshot-adapter";
+  import { containersToDockerRows, snapshotToPortRows, type PortRowView } from "$lib/snapshot-adapter";
 
   let snapshot: Snapshot = $state(snapshotFixture);
+  let portActionStates: Record<string, PortActionState> = $state({});
   const ports = $derived(snapshotToPortRows(snapshot));
   const containers = $derived(containersToDockerRows(snapshot.docker.data.containers));
   const runningCount = $derived(
@@ -44,6 +45,26 @@
       void commands.setIdle();
     };
   });
+
+  async function killPortProcess(port: PortRowView) {
+    if (!isTauri() || port.pid === 0 || portActionStates[port.key] === "killing") return;
+
+    portActionStates = { ...portActionStates, [port.key]: "killing" };
+    const result = await commands.killProcessTree({
+      pid: port.pid,
+      executable: port.executable,
+      start_time: port.startTime,
+      expected_port: port.port
+    });
+    if (result.status === "ok") {
+      const { [port.key]: _removed, ...rest } = portActionStates;
+      portActionStates = rest;
+    } else {
+      const actionState =
+        result.error.kind === "needs_elevated_privileges" ? "needs_privilege" : "failed";
+      portActionStates = { ...portActionStates, [port.key]: actionState };
+    }
+  }
 </script>
 
 <main class="popover">
@@ -65,7 +86,7 @@
   </header>
 
   <div class="scroll-body">
-    <PortList {ports} />
+    <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} />
     <DockerList {containers} />
   </div>
 

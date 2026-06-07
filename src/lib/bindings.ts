@@ -7,6 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	setActive: () => __TAURI_INVOKE<void>("set_active"),
 	setIdle: () => __TAURI_INVOKE<void>("set_idle"),
+	killProcessTree: (target: KillTarget) => typedError<null, KillProcessError>(__TAURI_INVOKE("kill_process_tree", { target })),
 };
 
 /** Events */
@@ -33,6 +34,15 @@ export type DockerSnapshot = {
 };
 
 export type DockerStatus = "detected" | "not_detected";
+
+export type KillProcessError = { kind: "needs_elevated_privileges"; pid: number } | { kind: "process_changed"; pid: number } | { kind: "port_changed"; pid: number; port: number } | { kind: "still_running"; pids: number[] } | { kind: "port_still_listening"; port: number } | { kind: "failed"; message: string };
+
+export type KillTarget = {
+	pid: number,
+	executable: string | null,
+	start_time: number,
+	expected_port: number | null,
+};
 
 export type PortOwner = {
 	pid: number,
@@ -76,6 +86,15 @@ export type SnapshotSection<T> = {
 };
 
 /* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
+
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
 
 function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deserialize?: (payload: any) => T) {

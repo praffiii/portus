@@ -1,11 +1,14 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::ports::PortProbe;
 
 use super::{descendants_of, ProcessError, ProcessInfo, ProcessProbe, ProcessSignal};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
 pub struct KillTarget {
     pub pid: u32,
     pub executable: Option<String>,
@@ -79,9 +82,7 @@ where
 
     fn signal_all(&self, pids: &[u32], signal: ProcessSignal) -> Result<(), ProcessError> {
         for &pid in pids {
-            if !self.process_probe.signal(pid, signal)? {
-                return Err(ProcessError::SignalFailed { pid, signal });
-            }
+            self.process_probe.signal(pid, signal)?;
         }
         Ok(())
     }
@@ -202,7 +203,14 @@ mod tests {
     fn kill_tree_returns_signal_failed_when_signal_is_rejected() {
         let process_probe =
             FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID]])
-                .with_signal_result(ROOT_PID, ProcessSignal::Terminate, false);
+                .with_signal_error(
+                    ROOT_PID,
+                    ProcessSignal::Terminate,
+                    ProcessError::SignalFailed {
+                        pid: ROOT_PID,
+                        signal: ProcessSignal::Terminate,
+                    },
+                );
         let controller = controller(process_probe, released_port_probe());
 
         let error = controller.kill_tree(target(None)).unwrap_err();
@@ -213,6 +221,25 @@ mod tests {
                 pid: ROOT_PID,
                 signal: ProcessSignal::Terminate
             }
+        ));
+    }
+
+    #[test]
+    fn kill_tree_returns_permission_denied_when_signal_needs_privilege() {
+        let process_probe =
+            FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID]])
+                .with_signal_error(
+                    ROOT_PID,
+                    ProcessSignal::Terminate,
+                    ProcessError::PermissionDenied { pid: ROOT_PID },
+                );
+        let controller = controller(process_probe, released_port_probe());
+
+        let error = controller.kill_tree(target(None)).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProcessError::PermissionDenied { pid: ROOT_PID }
         ));
     }
 

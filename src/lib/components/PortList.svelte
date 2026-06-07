@@ -1,8 +1,26 @@
 <script lang="ts">
+  import { LockKeyhole, Square } from "@lucide/svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { PortRowView, PortSource } from "$lib/snapshot-adapter";
+  import type { PortRowView } from "$lib/snapshot-adapter";
 
-  let { ports }: { ports: PortRowView[] } = $props();
+  export type PortActionState = "idle" | "killing" | "needs_privilege" | "failed";
+
+  let {
+    ports,
+    actionStates = {},
+    onKill = () => {}
+  }: {
+    ports: PortRowView[];
+    actionStates?: Record<string, PortActionState>;
+    onKill?: (port: PortRowView) => void;
+  } = $props();
+
+  function actionLabel(item: PortRowView, state: PortActionState) {
+    if (state === "needs_privilege") return `${item.process} needs elevated privileges`;
+    if (state === "killing") return `Killing ${item.process}`;
+    if (state === "failed") return `Kill ${item.process} failed`;
+    return `Kill ${item.process}`;
+  }
 </script>
 
 <section aria-labelledby="ports-heading">
@@ -13,6 +31,7 @@
 
   <ul>
     {#each ports as item (item.key)}
+      {@const actionState = actionStates[item.key] ?? "idle"}
       <li>
         <StatusBadge status={item.status} />
         <span class="port">:{item.port}</span>
@@ -31,12 +50,22 @@
             <span class="metric">{item.memoryMb} MB</span>
           </div>
         </div>
-        <!-- Presentational until the kill command is wired to the frontend (see-kill). -->
         <div class="row-actions">
-          <button class="act-btn kill" type="button" title="Kill process (unavailable)" aria-label={`Kill ${item.process} (unavailable)`} disabled>
-            <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
-            </svg>
+          <button
+            class:needs-privilege={actionState === "needs_privilege"}
+            class:failed={actionState === "failed"}
+            class="act-btn kill"
+            type="button"
+            title={actionLabel(item, actionState)}
+            aria-label={actionLabel(item, actionState)}
+            disabled={item.pid === 0 || actionState === "killing" || actionState === "needs_privilege"}
+            onclick={() => onKill(item)}
+          >
+            {#if actionState === "needs_privilege"}
+              <LockKeyhole size={13} strokeWidth={1.9} aria-hidden="true" />
+            {:else}
+              <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
+            {/if}
           </button>
         </div>
       </li>
@@ -135,8 +164,26 @@
       border-color 100ms ease;
   }
 
+  .act-btn:not(:disabled) {
+    cursor: pointer;
+  }
+
+  .act-btn:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
+    color: var(--crashed);
+    background: color-mix(in srgb, var(--crashed) 8%, transparent);
+  }
+
   .act-btn:disabled {
-    opacity: 0.7;
+    opacity: 0.72;
+  }
+
+  .act-btn.needs-privilege {
+    color: var(--waiting);
+  }
+
+  .act-btn.failed {
+    color: var(--crashed);
   }
 
   .port,

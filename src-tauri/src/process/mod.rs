@@ -37,7 +37,7 @@ pub enum ProcessSignal {
     Kill,
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum ProcessError {
     #[error("failed to inspect processes: {0}")]
     Inspect(String),
@@ -47,6 +47,8 @@ pub enum ProcessError {
     IdentityMismatch { pid: u32 },
     #[error("process {pid} no longer owns port {port}")]
     PortOwnerMismatch { pid: u32, port: u16 },
+    #[error("process {pid} needs elevated privileges")]
+    PermissionDenied { pid: u32 },
     #[error("failed to send {signal:?} to process {pid}")]
     SignalFailed { pid: u32, signal: ProcessSignal },
     #[error("processes are still running after signal escalation: {0:?}")]
@@ -62,5 +64,5 @@ pub trait ProcessProbe: Send + Sync {
 
     fn all_snapshots(&self) -> Result<Vec<ProcessSnapshot>, ProcessError>;
 
-    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<bool, ProcessError>;
+    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<(), ProcessError>;
 }

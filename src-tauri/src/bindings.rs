@@ -4,16 +4,23 @@ use specta_typescript::Typescript;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::docker::{DockerContainer, DockerSnapshot};
-use crate::state::{self, Snapshot};
+use crate::process::KillTarget;
+use crate::state::{self, KillProcessError, Snapshot};
 
 const TYPESCRIPT_BINDINGS_PATH: &str = "../src/lib/bindings.ts";
 
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
-        .commands(collect_commands![state::set_active, state::set_idle])
+        .commands(collect_commands![
+            state::set_active,
+            state::set_idle,
+            state::kill_process_tree
+        ])
         .events(collect_events![Snapshot])
         .typ::<DockerContainer>()
         .typ::<DockerSnapshot>()
+        .typ::<KillProcessError>()
+        .typ::<KillTarget>()
         .dangerously_cast_bigints_to_number()
 }
 
@@ -42,6 +49,7 @@ mod tests {
         let bindings = std::fs::read_to_string(output).expect("read bindings");
         assert!(bindings.contains("setActive"));
         assert!(bindings.contains("setIdle"));
+        assert!(bindings.contains("killProcessTree"));
         assert!(bindings.contains("snapshot"));
         assert!(bindings.contains("export type Snapshot"));
     }

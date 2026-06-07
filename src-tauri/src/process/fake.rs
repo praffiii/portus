@@ -12,7 +12,7 @@ struct FakeProcessState {
     snapshots: Vec<ProcessSnapshot>,
     alive_polls: VecDeque<HashSet<u32>>,
     last_alive: HashSet<u32>,
-    signal_results: Vec<(u32, ProcessSignal, bool)>,
+    signal_errors: Vec<(u32, ProcessSignal, ProcessError)>,
     signals: Vec<(u32, ProcessSignal)>,
     process_infos: HashMap<u32, ProcessInfo>,
 }
@@ -30,19 +30,19 @@ impl FakeProcessProbe {
                 snapshots,
                 alive_polls,
                 last_alive,
-                signal_results: Vec::new(),
+                signal_errors: Vec::new(),
                 signals: Vec::new(),
                 process_infos: HashMap::new(),
             })),
         }
     }
 
-    pub fn with_signal_result(self, pid: u32, signal: ProcessSignal, result: bool) -> Self {
+    pub fn with_signal_error(self, pid: u32, signal: ProcessSignal, error: ProcessError) -> Self {
         self.state
             .lock()
             .expect("fake process probe lock poisoned")
-            .signal_results
-            .push((pid, signal, result));
+            .signal_errors
+            .push((pid, signal, error));
         self
     }
 
@@ -94,18 +94,19 @@ impl ProcessProbe for FakeProcessProbe {
             .clone())
     }
 
-    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<bool, ProcessError> {
+    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<(), ProcessError> {
         let mut state = self.state.lock().expect("fake process probe lock poisoned");
         state.signals.push((pid, signal));
 
-        Ok(state
-            .signal_results
-            .iter()
-            .rev()
-            .find_map(|&(configured_pid, configured_signal, result)| {
-                (configured_pid == pid && configured_signal == signal).then_some(result)
-            })
-            .unwrap_or(true))
+        if let Some(error) = state.signal_errors.iter().rev().find_map(
+            |(configured_pid, configured_signal, error)| {
+                (*configured_pid == pid && *configured_signal == signal).then_some(error.clone())
+            },
+        ) {
+            Err(error)
+        } else {
+            Ok(())
+        }
     }
 }
 
