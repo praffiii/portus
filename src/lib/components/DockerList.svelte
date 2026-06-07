@@ -1,8 +1,8 @@
 <script lang="ts">
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { DockerRow } from "$lib/snapshot-adapter";
+  import type { DockerRowView } from "$lib/snapshot-adapter";
 
-  let { containers }: { containers: DockerRow[] } = $props();
+  let { containers }: { containers: DockerRowView[] } = $props();
 </script>
 
 <section aria-labelledby="docker-heading">

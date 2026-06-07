@@ -15,6 +15,10 @@ export const events = {
 };
 
 /* Types */
+export type AddressFamily = "V4" | "V6";
+
+export type BindScope = "AllInterfaces" | "Loopback" | "Specific";
+
 export type DockerContainer = {
 	id: string,
 	names: string[],
@@ -30,16 +34,20 @@ export type DockerSnapshot = {
 
 export type DockerStatus = "detected" | "not_detected";
 
-export type ListenerProcess = {
+export type PortOwner = {
 	pid: number,
 	name: string,
 	path: string,
 };
 
-export type PortListener = {
+export type PortRow = {
 	protocol: Protocol,
-	socket: string,
-	process: ListenerProcess,
+	port: number,
+	scope: BindScope,
+	specific_addr: string | null,
+	families: AddressFamily[],
+	owners: PortOwner[],
+	key: string,
 };
 
 export type ProcessInfo = {
@@ -57,7 +65,7 @@ export type ProcessInfo = {
 export type Protocol = "Tcp";
 
 export type Snapshot = {
-	ports: SnapshotSection<PortListener[]>,
+	ports: SnapshotSection<PortRow[]>,
 	processes: SnapshotSection<ProcessInfo[]>,
 };
 

@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use portus_lib::ports::{
-    FakePortProbe, ListenerProcess, PortListener, PortProbe, PortProbeError, Protocol,
+    AddressFamily, BindScope, FakePortProbe, ListenerProcess, PortListener, PortOwner, PortProbe,
+    PortProbeError, PortRow, Protocol,
 };
 use portus_lib::process::{
     FakeProcessProbe, ProcessError, ProcessInfo, ProcessProbe, ProcessSignal, ProcessSnapshot,
@@ -66,7 +67,7 @@ fn poll_emits_ports_and_processes_in_one_snapshot() {
 
     let snapshots = emitter.snapshots();
     assert_eq!(snapshots.len(), 1);
-    assert_eq!(snapshots[0].ports.data, ports);
+    assert_eq!(snapshots[0].ports.data, vec![port_row(3000, 42)]);
     assert_eq!(snapshots[0].processes.data.len(), 1);
     assert_eq!(snapshots[0].processes.data[0].pid, 42);
     assert_eq!(emitter.events(), vec![SNAPSHOT_EVENT]);
@@ -137,7 +138,7 @@ fn panicking_process_probe_does_not_blank_ports_or_skip_emit() {
     assert!(result.is_ok());
     let snapshots = emitter.snapshots();
     assert_eq!(snapshots.len(), 1);
-    assert_eq!(snapshots[0].ports.data, ports);
+    assert_eq!(snapshots[0].ports.data, vec![port_row(3000, 42)]);
     assert!(snapshots[0].ports.error.is_none());
     assert!(snapshots[0].processes.data.is_empty());
     assert_eq!(
@@ -256,5 +257,21 @@ fn listener(port: u16, pid: u32) -> PortListener {
             name: "node".to_string(),
             path: "/usr/local/bin/node".to_string(),
         },
+    }
+}
+
+fn port_row(port: u16, pid: u32) -> PortRow {
+    PortRow {
+        protocol: Protocol::Tcp,
+        port,
+        scope: BindScope::Loopback,
+        specific_addr: None,
+        families: vec![AddressFamily::V4],
+        owners: vec![PortOwner {
+            pid,
+            name: "node".to_string(),
+            path: "/usr/local/bin/node".to_string(),
+        }],
+        key: format!("tcp|loopback|{port}|{pid}"),
     }
 }
