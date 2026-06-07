@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_specta::Event;
 use tokio::sync::watch;
 
-use crate::ports::{PortListener, PortProbe};
+use crate::ports::{normalize, PortProbe, PortRow};
 use crate::process::{ProcessInfo, ProcessProbe};
 
 pub const SNAPSHOT_EVENT: &str = "snapshot";
@@ -71,7 +71,7 @@ pub struct SnapshotSection<T> {
 #[derive(Clone, Debug, PartialEq, Serialize, Type, Event)]
 #[tauri_specta(event_name = "snapshot")]
 pub struct Snapshot {
-    pub ports: SnapshotSection<Vec<PortListener>>,
+    pub ports: SnapshotSection<Vec<PortRow>>,
     pub processes: SnapshotSection<Vec<ProcessInfo>>,
 }
 
@@ -102,11 +102,11 @@ where
     }
 
     pub fn poll(&self) -> Snapshot {
-        let ports = isolated_probe("port", || self.port_probe.scan());
+        let ports = isolated_probe("port", || self.port_probe.scan().map(normalize));
         let mut pids: Vec<u32> = ports
             .data
             .iter()
-            .map(|listener| listener.process.pid)
+            .flat_map(|row| row.owners.iter().map(|owner| owner.pid))
             .collect();
         pids.sort_unstable();
         pids.dedup();
