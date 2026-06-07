@@ -10,7 +10,7 @@ use tokio::sync::watch;
 
 use crate::docker::{DockerBackend, DockerProbe, DockerSnapshot, SystemDockerBackend};
 use crate::ports::{normalize, PortProbe, PortRow};
-use crate::process::{ProcessInfo, ProcessProbe};
+use crate::process::{KillTarget, ProcessController, ProcessError, ProcessInfo, ProcessProbe};
 
 pub const SNAPSHOT_EVENT: &str = "snapshot";
 pub const ACTIVE_INTERVAL: Duration = Duration::from_secs(2);
@@ -75,6 +75,17 @@ pub struct Snapshot {
     pub ports: SnapshotSection<Vec<PortRow>>,
     pub processes: SnapshotSection<Vec<ProcessInfo>>,
     pub docker: SnapshotSection<DockerSnapshot>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum KillProcessError {
+    NeedsElevatedPrivileges { pid: u32 },
+    ProcessChanged { pid: u32 },
+    PortChanged { pid: u32, port: u16 },
+    StillRunning { pids: Vec<u32> },
+    PortStillListening { port: u16 },
+    Failed { message: String },
 }
 
 pub trait SnapshotEmitter: Send + Sync {
@@ -174,6 +185,43 @@ pub fn set_active(state: State<'_, PollState>) {
 #[specta::specta]
 pub fn set_idle(state: State<'_, PollState>) {
     state.set_idle();
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+#[specta::specta]
+pub fn kill_process_tree(target: KillTarget) -> Result<(), KillProcessError> {
+    use crate::ports::SystemPortProbe;
+    use crate::process::SystemProcessProbe;
+
+    ProcessController::new(
+        SystemProcessProbe::default(),
+        SystemPortProbe,
+        Duration::from_millis(300),
+        Duration::from_millis(20),
+    )
+    .kill_tree(target)
+    .map_err(KillProcessError::from)
+}
+
+impl From<ProcessError> for KillProcessError {
+    fn from(error: ProcessError) -> Self {
+        match error {
+            ProcessError::PermissionDenied { pid } => Self::NeedsElevatedPrivileges { pid },
+            ProcessError::NotFound(pid) | ProcessError::IdentityMismatch { pid } => {
+                Self::ProcessChanged { pid }
+            }
+            ProcessError::PortOwnerMismatch { pid, port } => Self::PortChanged { pid, port },
+            ProcessError::StillRunning(pids) => Self::StillRunning { pids },
+            ProcessError::PortStillListening(port) => Self::PortStillListening { port },
+            ProcessError::Inspect(message) | ProcessError::PortVerification(message) => {
+                Self::Failed { message }
+            }
+            ProcessError::SignalFailed { pid, signal } => Self::Failed {
+                message: format!("failed to send {signal:?} to process {pid}"),
+            },
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]

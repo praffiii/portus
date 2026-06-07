@@ -21,6 +21,8 @@ export function snapshotToPortRows(snapshot: Snapshot) {
       source: process ? sourceFromProcess(process) : ("orphan?" as const),
       status: "running" as ServiceStatus,
       pid: owner?.pid ?? 0,
+      executable: process?.executable ?? null,
+      startTime: process?.start_time ?? 0,
       cpuPercent: process?.cpu_usage ?? 0,
       memoryMb: process ? Math.round(process.memory_bytes / bytesPerMegabyte) : 0,
       cwd: process?.cwd ?? process?.executable ?? owner?.path ?? "Unknown"

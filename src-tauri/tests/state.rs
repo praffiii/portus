@@ -11,7 +11,8 @@ use portus_lib::process::{
     FakeProcessProbe, ProcessError, ProcessInfo, ProcessProbe, ProcessSignal, ProcessSnapshot,
 };
 use portus_lib::state::{
-    run_poll_loop, PollMode, PollState, SnapshotBuilder, SnapshotEmitter, SNAPSHOT_EVENT,
+    run_poll_loop, KillProcessError, PollMode, PollState, SnapshotBuilder, SnapshotEmitter,
+    SNAPSHOT_EVENT,
 };
 use serde_json::json;
 
@@ -29,6 +30,13 @@ fn cadence_switches_between_idle_and_active() {
     state.set_idle();
     assert_eq!(state.mode(), PollMode::Idle);
     assert_eq!(state.current_interval(), Duration::from_secs(8));
+}
+
+#[test]
+fn permission_denied_process_error_maps_to_elevated_privileges_action_state() {
+    let error = KillProcessError::from(ProcessError::PermissionDenied { pid: 42 });
+
+    assert_eq!(error, KillProcessError::NeedsElevatedPrivileges { pid: 42 });
 }
 
 #[tokio::test]
@@ -271,7 +279,7 @@ impl ProcessProbe for PanickingProcessProbe {
         unreachable!()
     }
 
-    fn signal(&self, _pid: u32, _signal: ProcessSignal) -> Result<bool, ProcessError> {
+    fn signal(&self, _pid: u32, _signal: ProcessSignal) -> Result<(), ProcessError> {
         unreachable!()
     }
 }
@@ -290,7 +298,7 @@ impl ProcessProbe for RecordingProcessProbe {
         unreachable!()
     }
 
-    fn signal(&self, _pid: u32, _signal: ProcessSignal) -> Result<bool, ProcessError> {
+    fn signal(&self, _pid: u32, _signal: ProcessSignal) -> Result<(), ProcessError> {
         unreachable!()
     }
 }
