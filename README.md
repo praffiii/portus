@@ -34,7 +34,7 @@ System Settings → Privacy & Security → Open Anyway
 Requirements: Rust stable, Node.js 24, pnpm 10.
 
 ```bash
-git clone https://github.com/<you>/portus
+git clone https://github.com/praffiii/portus
 cd portus
 pnpm install
 pnpm tauri build --target aarch64-apple-darwin
