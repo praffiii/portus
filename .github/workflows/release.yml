@@ -67,9 +67,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ steps.release.outputs.tag }}
-          releaseName: "Portus v0.1 beta"
+          releaseName: "Portus ${{ steps.release.outputs.tag }}"
           releaseBody: |
-            Portus v0.1 beta: the Layer 1 public wedge for seeing and controlling local dev stack listeners and Docker containers.
+            Portus ${{ steps.release.outputs.tag }} release.
 
             This macOS build is ad-hoc signed and not notarized. On first launch, macOS may require opening it from Privacy & Security settings.
           prerelease: true
