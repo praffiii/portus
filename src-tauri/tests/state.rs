@@ -1,8 +1,8 @@
-use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use portus_lib::docker::{DockerBackendError, FakeDockerBackend, RawContainer};
 use portus_lib::ports::{
     AddressFamily, BindScope, FakePortProbe, ListenerProcess, PortListener, PortOwner, PortProbe,
     PortProbeError, PortRow, Protocol,
@@ -38,6 +38,7 @@ async fn active_mode_interrupts_the_idle_wait() {
     let builder = Arc::new(SnapshotBuilder::new(
         FakePortProbe::new(vec![]),
         FakeProcessProbe::new(vec![], vec![vec![], vec![]]),
+        no_docker(),
     ));
     let task = tokio::spawn(run_poll_loop(builder, emitter.clone(), state.clone()));
 
@@ -50,8 +51,8 @@ async fn active_mode_interrupts_the_idle_wait() {
     task.abort();
 }
 
-#[test]
-fn poll_emits_ports_and_processes_in_one_snapshot() {
+#[tokio::test]
+async fn poll_emits_ports_and_processes_in_one_snapshot() {
     let ports = vec![listener(3000, 42)];
     let processes = FakeProcessProbe::new(
         vec![ProcessSnapshot {
@@ -61,9 +62,9 @@ fn poll_emits_ports_and_processes_in_one_snapshot() {
         vec![vec![42]],
     );
     let emitter = RecordingEmitter::default();
-    let builder = SnapshotBuilder::new(FakePortProbe::new(ports.clone()), processes);
+    let builder = SnapshotBuilder::new(FakePortProbe::new(ports.clone()), processes, no_docker());
 
-    builder.poll_and_emit(&emitter);
+    builder.poll_and_emit(&emitter).await;
 
     let snapshots = emitter.snapshots();
     assert_eq!(snapshots.len(), 1);
@@ -71,6 +72,46 @@ fn poll_emits_ports_and_processes_in_one_snapshot() {
     assert_eq!(snapshots[0].processes.data.len(), 1);
     assert_eq!(snapshots[0].processes.data[0].pid, 42);
     assert_eq!(emitter.events(), vec![SNAPSHOT_EVENT]);
+}
+
+#[tokio::test]
+async fn docker_proxy_listener_is_reconciled_into_the_container_row() {
+    let docker_proxy = PortListener {
+        protocol: Protocol::Tcp,
+        socket: "0.0.0.0:8080".parse().unwrap(),
+        process: ListenerProcess {
+            pid: 101,
+            name: "com.docker.backend".to_string(),
+            path: "/Applications/Docker.app/Contents/MacOS/com.docker.backend".to_string(),
+        },
+    };
+    let node = listener(5173, 42);
+    let docker = FakeDockerBackend::new(vec![Ok(vec![RawContainer {
+        id: "abc123".to_string(),
+        names: vec!["/web".to_string()],
+        image: "nginx:latest".to_string(),
+        state: "running".to_string(),
+        status: "Up 3 seconds, 0.0.0.0:8080->80/tcp".to_string(),
+    }])]);
+    let processes = FakeProcessProbe::new(
+        vec![ProcessSnapshot {
+            pid: 42,
+            parent_pid: None,
+        }],
+        vec![vec![42]],
+    );
+    let builder = SnapshotBuilder::new(
+        FakePortProbe::new(vec![docker_proxy, node]),
+        processes,
+        docker,
+    );
+
+    let snapshot = builder.poll().await;
+
+    assert_eq!(snapshot.docker.data.containers.len(), 1);
+    assert_eq!(snapshot.docker.data.containers[0].names, vec!["/web"]);
+    assert_eq!(snapshot.ports.data, vec![port_row(5173, 42)]);
+    assert_eq!(snapshot.processes.data.len(), 1);
 }
 
 #[test]
@@ -94,6 +135,10 @@ fn snapshot_serializes_process_fields_as_human_readable_strings() {
             }],
             error: None,
         },
+        docker: portus_lib::state::SnapshotSection {
+            data: Default::default(),
+            error: None,
+        },
     };
 
     let value = serde_json::to_value(snapshot).unwrap();
@@ -109,8 +154,8 @@ fn snapshot_serializes_process_fields_as_human_readable_strings() {
     );
 }
 
-#[test]
-fn duplicate_listener_pids_are_resolved_once() {
+#[tokio::test]
+async fn duplicate_listener_pids_are_resolved_once() {
     let requested = Arc::new(Mutex::new(Vec::new()));
     let process_probe = RecordingProcessProbe {
         requested: requested.clone(),
@@ -118,24 +163,25 @@ fn duplicate_listener_pids_are_resolved_once() {
     let builder = SnapshotBuilder::new(
         FakePortProbe::new(vec![listener(3000, 42), listener(3001, 42)]),
         process_probe,
+        no_docker(),
     );
 
-    builder.poll();
+    builder.poll().await;
 
     assert_eq!(*requested.lock().unwrap(), vec![42]);
 }
 
-#[test]
-fn panicking_process_probe_does_not_blank_ports_or_skip_emit() {
+#[tokio::test]
+async fn panicking_process_probe_does_not_blank_ports_or_skip_emit() {
     let ports = vec![listener(3000, 42)];
     let emitter = RecordingEmitter::default();
-    let builder = SnapshotBuilder::new(FakePortProbe::new(ports.clone()), PanickingProcessProbe);
+    let builder = SnapshotBuilder::new(
+        FakePortProbe::new(ports.clone()),
+        PanickingProcessProbe,
+        no_docker(),
+    );
 
-    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        builder.poll_and_emit(&emitter);
-    }));
-
-    assert!(result.is_ok());
+    builder.poll_and_emit(&emitter).await;
     let snapshots = emitter.snapshots();
     assert_eq!(snapshots.len(), 1);
     assert_eq!(snapshots[0].ports.data, vec![port_row(3000, 42)]);
@@ -147,15 +193,16 @@ fn panicking_process_probe_does_not_blank_ports_or_skip_emit() {
     );
 }
 
-#[test]
-fn panicking_port_probe_still_emits_a_snapshot() {
+#[tokio::test]
+async fn panicking_port_probe_still_emits_a_snapshot() {
     let emitter = RecordingEmitter::default();
     let builder = SnapshotBuilder::new(
         PanickingPortProbe,
         FakeProcessProbe::new(vec![], vec![vec![]]),
+        no_docker(),
     );
 
-    builder.poll_and_emit(&emitter);
+    builder.poll_and_emit(&emitter).await;
 
     let snapshots = emitter.snapshots();
     assert_eq!(snapshots.len(), 1);
@@ -274,4 +321,8 @@ fn port_row(port: u16, pid: u32) -> PortRow {
         }],
         key: format!("tcp|loopback|{port}|{pid}"),
     }
+}
+
+fn no_docker() -> FakeDockerBackend {
+    FakeDockerBackend::new(vec![Err(DockerBackendError::NotDetected)])
 }

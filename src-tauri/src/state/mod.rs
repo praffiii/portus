@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_specta::Event;
 use tokio::sync::watch;
 
+use crate::docker::{DockerBackend, DockerProbe, DockerSnapshot, SystemDockerBackend};
 use crate::ports::{normalize, PortProbe, PortRow};
 use crate::process::{ProcessInfo, ProcessProbe};
 
@@ -73,36 +74,55 @@ pub struct SnapshotSection<T> {
 pub struct Snapshot {
     pub ports: SnapshotSection<Vec<PortRow>>,
     pub processes: SnapshotSection<Vec<ProcessInfo>>,
+    pub docker: SnapshotSection<DockerSnapshot>,
 }
 
 pub trait SnapshotEmitter: Send + Sync {
     fn emit_snapshot(&self, event: &'static str, snapshot: Snapshot) -> Result<(), String>;
 }
 
-pub struct SnapshotBuilder<P, Q> {
+pub struct SnapshotBuilder<P, Q, R> {
     port_probe: P,
     process_probe: Q,
+    docker_probe: DockerProbe<R>,
 }
 
-impl<P, Q> SnapshotBuilder<P, Q>
+impl<P, Q, R> SnapshotBuilder<P, Q, R>
 where
     P: PortProbe,
     Q: ProcessProbe,
+    R: DockerBackend,
 {
-    pub fn new(port_probe: P, process_probe: Q) -> Self {
+    pub fn new(port_probe: P, process_probe: Q, docker_backend: R) -> Self {
         Self {
             port_probe,
             process_probe,
+            docker_probe: DockerProbe::new(docker_backend),
         }
     }
 
-    pub fn poll_and_emit<E: SnapshotEmitter>(&self, emitter: &E) {
-        let snapshot = self.poll();
+    pub async fn poll_and_emit<E: SnapshotEmitter>(&self, emitter: &E) {
+        let snapshot = self.poll().await;
         let _ = emitter.emit_snapshot(SNAPSHOT_EVENT, snapshot);
     }
 
-    pub fn poll(&self) -> Snapshot {
-        let ports = isolated_probe("port", || self.port_probe.scan().map(normalize));
+    pub async fn poll(&self) -> Snapshot {
+        let docker = match self.docker_probe.snapshot().await {
+            Ok(data) => SnapshotSection { data, error: None },
+            Err(error) => SnapshotSection {
+                data: DockerSnapshot::default(),
+                error: Some(error.to_string()),
+            },
+        };
+        let published_ports = published_container_ports(&docker.data);
+        let ports = isolated_probe("port", || {
+            self.port_probe.scan().map(|listeners| {
+                normalize(listeners)
+                    .into_iter()
+                    .filter(|row| !is_docker_proxy_row(row, &published_ports))
+                    .collect::<Vec<_>>()
+            })
+        });
         let mut pids: Vec<u32> = ports
             .data
             .iter()
@@ -112,22 +132,27 @@ where
         pids.dedup();
         let processes = isolated_probe("process", || self.process_probe.info_for_pids(&pids));
 
-        Snapshot { ports, processes }
+        Snapshot {
+            ports,
+            processes,
+            docker,
+        }
     }
 }
 
-pub async fn run_poll_loop<P, Q, E>(
-    builder: Arc<SnapshotBuilder<P, Q>>,
+pub async fn run_poll_loop<P, Q, R, E>(
+    builder: Arc<SnapshotBuilder<P, Q, R>>,
     emitter: Arc<E>,
     state: PollState,
 ) where
     P: PortProbe + 'static,
     Q: ProcessProbe + 'static,
+    R: DockerBackend + 'static,
     E: SnapshotEmitter + 'static,
 {
     let mut mode_rx = state.subscribe();
     loop {
-        builder.poll_and_emit(emitter.as_ref());
+        builder.poll_and_emit(emitter.as_ref()).await;
         tokio::select! {
             _ = tokio::time::sleep(state.current_interval()) => {}
             changed = mode_rx.changed() => {
@@ -162,9 +187,38 @@ pub fn start(app: AppHandle) {
     let builder = Arc::new(SnapshotBuilder::new(
         SystemPortProbe,
         SystemProcessProbe::default(),
+        SystemDockerBackend::default(),
     ));
     let emitter = Arc::new(TauriSnapshotEmitter { app });
     tauri::async_runtime::spawn(run_poll_loop(builder, emitter, state));
+}
+
+fn published_container_ports(snapshot: &DockerSnapshot) -> Vec<u16> {
+    let mut ports: Vec<u16> = snapshot
+        .containers
+        .iter()
+        .flat_map(|container| published_ports_from_status(&container.status))
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+fn published_ports_from_status(status: &str) -> impl Iterator<Item = u16> + '_ {
+    status
+        .split(',')
+        .filter_map(|segment| segment.trim().split_once("->"))
+        .filter_map(|(host, _container)| host.rsplit(':').next())
+        .filter_map(|port| port.parse::<u16>().ok())
+}
+
+fn is_docker_proxy_row(row: &PortRow, published_ports: &[u16]) -> bool {
+    published_ports.binary_search(&row.port).is_ok()
+        && row.owners.iter().any(|owner| {
+            let name = owner.name.to_lowercase();
+            let path = owner.path.to_lowercase();
+            name.contains("docker") || path.contains("docker.app") || path.contains("/docker/")
+        })
 }
 
 struct TauriSnapshotEmitter {

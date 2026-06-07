@@ -6,12 +6,12 @@
   import { commands, events, type Snapshot } from "$lib/bindings";
   import DockerList from "$lib/components/DockerList.svelte";
   import PortList from "$lib/components/PortList.svelte";
-  import { dockerFixtures, snapshotFixture } from "$lib/fixtures";
+  import { snapshotFixture } from "$lib/fixtures";
   import { containersToDockerRows, snapshotToPortRows } from "$lib/snapshot-adapter";
 
   let snapshot: Snapshot = $state(snapshotFixture);
   const ports = $derived(snapshotToPortRows(snapshot));
-  const containers = containersToDockerRows(dockerFixtures);
+  const containers = $derived(containersToDockerRows(snapshot.docker.data.containers));
   const runningCount = $derived(
     ports.filter((item) => item.status === "running").length +
       containers.filter((item) => item.status === "running").length
