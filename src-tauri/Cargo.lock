@@ -2656,7 +2656,7 @@ dependencies = [
 
 [[package]]
 name = "portus"
-version = "0.1.0"
+version = "0.1.0-beta"
 dependencies = [
  "bollard",
  "libc",

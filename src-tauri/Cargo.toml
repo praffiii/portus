@@ -1,6 +1,6 @@
 [package]
 name = "portus"
-version = "0.1.0"
+version = "0.1.0-beta"
 description = "Activity Monitor for your dev stack."
 authors = ["phi"]
 edition = "2021"
