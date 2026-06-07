@@ -61,7 +61,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build and publish Tauri release
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         env:
           APPLE_SIGNING_IDENTITY: "-"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
