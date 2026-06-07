@@ -1,4 +1,6 @@
-use portus_lib::process::{descendants_of, ProcessProbe, ProcessSnapshot, SystemProcessProbe};
+use portus_lib::process::{
+    descendants_of, KillTarget, ProcessProbe, ProcessSnapshot, SystemProcessProbe,
+};
 
 #[test]
 fn system_probe_resolves_requested_pid() {
@@ -53,7 +55,21 @@ fn kill_tree_terminates_parent_and_child_and_releases_port() {
         Duration::from_millis(20),
     );
 
-    controller.kill_tree(parent.id(), Some(port)).unwrap();
+    let child_info = SystemProcessProbe::default()
+        .info_for_pids(&[child_pid])
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("child process should still be running");
+
+    controller
+        .kill_tree(KillTarget {
+            pid: child_info.pid,
+            executable: child_info.executable,
+            start_time: child_info.start_time,
+            expected_port: Some(port),
+        })
+        .unwrap();
 
     wait_for_child_exit(&mut parent);
     wait_for_process_exit(child_pid);
