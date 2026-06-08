@@ -16,6 +16,7 @@ export const commands = {
 	stopTask: (pgid: number) => typedError<null, string>(__TAURI_INVOKE("stop_task", { pgid })),
 	subscribeLogs: (projectId: string, taskId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_logs", { projectId, taskId, channel })),
 	unsubscribeLogs: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_logs", { projectId, taskId })),
+	sendInput: (projectId: string, taskId: string, data: string) => typedError<InputStatus, string>(__TAURI_INVOKE("send_input", { projectId, taskId, data })),
 	saveAsCandidates: (listenerPid: number) => typedError<SaveAsCandidate[], string>(__TAURI_INVOKE("save_as_candidates", { listenerPid })),
 };
 
@@ -43,6 +44,8 @@ export type DockerSnapshot = {
 };
 
 export type DockerStatus = "detected" | "not_detected";
+
+export type InputStatus = "sent" | "ignored";
 
 export type KillProcessError = { kind: "needs_elevated_privileges"; pid: number } | { kind: "process_changed"; pid: number } | { kind: "port_changed"; pid: number; port: number } | { kind: "still_running"; pids: number[] } | { kind: "port_still_listening"; port: number } | { kind: "failed"; message: string };
 

@@ -14,7 +14,7 @@ use super::parse::tasks_from_folder;
 use super::registry::ProjectRegistry;
 use super::spawn::spawn_task;
 use super::store::{upsert, ProjectStore, ProjectStoreData};
-use super::{Project, Task};
+use super::{InputStatus, Project, Task};
 
 pub struct ProjectsState {
     pub store: ProjectStore,
@@ -240,6 +240,20 @@ pub fn unsubscribe_logs(
     let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
     registry.unsubscribe_logs(&project_id, &task_id);
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn send_input(
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    project_id: String,
+    task_id: String,
+    data: String,
+) -> Result<InputStatus, String> {
+    let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    registry
+        .send_input(&project_id, &task_id, data.as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

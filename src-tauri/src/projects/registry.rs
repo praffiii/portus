@@ -5,7 +5,7 @@ use specta::Type;
 use tauri::ipc::Channel;
 
 use super::lifecycle::{classify, ExitState, Lifecycle};
-use super::spawn::SpawnedProcess;
+use super::spawn::{InputStatus, SpawnedProcess};
 use crate::logs::ansi::LogBatch;
 
 const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
@@ -126,6 +126,25 @@ impl ProjectRegistry {
         };
         process.unsubscribe_logs();
         true
+    }
+
+    pub fn send_input(
+        &mut self,
+        project_id: &str,
+        task_id: &str,
+        data: &[u8],
+    ) -> std::io::Result<InputStatus> {
+        let Some(managed) = self.managed.iter_mut().find(|managed| {
+            managed.project_id == project_id
+                && managed.task_id == task_id
+                && managed.terminal_lifecycle.is_none()
+        }) else {
+            return Ok(InputStatus::Ignored);
+        };
+        let Some(process) = managed.process.as_mut() else {
+            return Ok(InputStatus::Ignored);
+        };
+        process.send_input_if_running(data)
     }
 
     pub fn reconcile(

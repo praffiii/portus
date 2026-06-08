@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
+use serde::Serialize;
+use specta::Type;
 use tauri::ipc::Channel;
 
 use super::env::load_project_env;
@@ -54,6 +56,13 @@ pub struct SpawnedProcess {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessExitStatus {
     code: Option<i32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum InputStatus {
+    Sent,
+    Ignored,
 }
 
 impl ProcessExitStatus {
@@ -191,6 +200,14 @@ impl SpawnedProcess {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .write_all(data)
+    }
+
+    pub fn send_input_if_running(&mut self, data: &[u8]) -> io::Result<InputStatus> {
+        if self.try_status()?.is_some() {
+            return Ok(InputStatus::Ignored);
+        }
+        self.write_input(data)?;
+        Ok(InputStatus::Sent)
     }
 
     pub fn recent_output(&self) -> Vec<String> {

@@ -44,6 +44,13 @@
   onDestroy(() => {
     if (isTauri()) void commands.unsubscribeLogs(projectId, taskId);
   });
+
+  async function sendInput() {
+    if (!isTauri() || input.length === 0 || terminal) return;
+    const data = `${input}\n`;
+    input = "";
+    await commands.sendInput(projectId, taskId, data);
+  }
 </script>
 
 <div class="log-peek">
@@ -53,7 +60,13 @@
     {/each}
   </div>
   {#if !readonly}
-    <form class="log-input" onsubmit={(event) => event.preventDefault()}>
+    <form
+      class="log-input"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void sendInput();
+      }}
+    >
       <input bind:value={input} disabled={terminal} spellcheck="false" aria-label="Send input" />
       <button type="submit" disabled={terminal || input.length === 0}>Send</button>
     </form>

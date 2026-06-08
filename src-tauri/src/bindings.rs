@@ -24,6 +24,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             crate::projects::commands::stop_task,
             crate::projects::commands::subscribe_logs,
             crate::projects::commands::unsubscribe_logs,
+            crate::projects::commands::send_input,
             crate::projects::commands::save_as_candidates
         ])
         .events(collect_events![Snapshot])
@@ -33,6 +34,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<KillTarget>()
         .typ::<LogBatch>()
         .typ::<LogLine>()
+        .typ::<crate::projects::InputStatus>()
         .typ::<crate::projects::Project>()
         .typ::<crate::projects::Task>()
         .typ::<crate::projects::ManagedStatus>()
@@ -69,6 +71,7 @@ mod tests {
         assert!(bindings.contains("loadProjects"));
         assert!(bindings.contains("startTask"));
         assert!(bindings.contains("subscribeLogs"));
+        assert!(bindings.contains("sendInput"));
         assert!(bindings.contains("snapshot"));
         assert!(bindings.contains("export type LogBatch"));
         assert!(bindings.contains("export type Snapshot"));

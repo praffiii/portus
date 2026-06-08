@@ -111,6 +111,36 @@ fn subscribe_logs_streams_sanitized_batches_until_unsubscribed() {
 }
 
 #[test]
+fn send_input_reaches_a_process_reading_from_the_pty() {
+    let mut p = spawn_task("/bin/sh", "read answer; echo got-$answer", Path::new("/")).unwrap();
+    p.write_input(b"yes\n").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if p.recent_output()
+            .iter()
+            .any(|line| line.contains("got-yes"))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "input echo did not appear");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let _ = wait_for_exit(&mut p);
+}
+
+#[test]
+fn send_input_after_exit_is_a_noop_status() {
+    let mut p = spawn_task("/bin/sh", "true", Path::new("/")).unwrap();
+    let _ = wait_for_exit(&mut p);
+
+    let result = p.send_input_if_running(b"ignored\n").unwrap();
+
+    assert_eq!(result, portus_lib::projects::InputStatus::Ignored);
+}
+
+#[test]
 fn spawn_reports_clean_exit() {
     let mut p = spawn_task("/bin/sh", "true", Path::new("/")).unwrap();
     let status = wait_for_exit(&mut p);

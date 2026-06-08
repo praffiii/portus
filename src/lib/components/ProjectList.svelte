@@ -142,7 +142,12 @@
             <pre class="recent-output" aria-label={`Recent output for ${task.name}`}>{output.join("\n")}</pre>
           {/if}
           {#if status && expanded[key] && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
-            <LogPeek projectId={project.id} taskId={task.id} />
+            <LogPeek
+              projectId={project.id}
+              taskId={task.id}
+              readonly={false}
+              terminal={false}
+            />
           {/if}
         </li>
       {/each}
