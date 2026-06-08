@@ -2,8 +2,12 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use thiserror::Error;
 
+mod parse;
 mod store;
 
+pub use parse::{
+    detect_package_manager, parse_compose_services, parse_package_scripts, tasks_from_folder,
+};
 pub use store::{
     canonicalize_folder, upsert, LoadOutcome, ProjectStore, ProjectStoreData, StoreError,
     CURRENT_VERSION,
