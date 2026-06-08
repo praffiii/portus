@@ -71,3 +71,14 @@ fn kill_on_quit_kills_a_reparented_child() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+#[test]
+fn save_as_candidates_includes_the_spawning_command() {
+    let mut p = spawn_task("/bin/sh", "sleep 2", Path::new("/")).unwrap();
+    let listener_pid = p.pid();
+
+    let candidates = portus_lib::projects::candidates_from_chain_for_test(listener_pid);
+    assert!(candidates.iter().any(|c| c.command.contains("sleep")));
+
+    let _ = wait_for_exit(&mut p);
+}

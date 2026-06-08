@@ -42,7 +42,7 @@ pub enum ProjectError {
     Store(#[from] StoreError),
 }
 pub use commands::{
-    load_projects, remove_project, save_project, start_task, stop_task, suggest_tasks,
-    ProjectsState,
+    candidates_from_chain_for_test, load_projects, remove_project, save_project, start_task,
+    stop_task, suggest_tasks, ProjectsState, SaveAsCandidate,
 };
 pub use kill::{kill_all_managed, kill_group, QUIT_GRACE};

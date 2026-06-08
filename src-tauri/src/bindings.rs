@@ -20,7 +20,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             crate::projects::commands::save_project,
             crate::projects::commands::remove_project,
             crate::projects::commands::start_task,
-            crate::projects::commands::stop_task
+            crate::projects::commands::stop_task,
+            crate::projects::commands::save_as_candidates
         ])
         .events(collect_events![Snapshot])
         .typ::<DockerContainer>()
@@ -30,6 +31,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<crate::projects::Project>()
         .typ::<crate::projects::Task>()
         .typ::<crate::projects::ManagedStatus>()
+        .typ::<crate::projects::SaveAsCandidate>()
         .dangerously_cast_bigints_to_number()
 }
 

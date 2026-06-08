@@ -149,6 +149,26 @@
     if (!isTauri()) return;
     await commands.stopTask(pid);
   }
+
+  async function saveAsProject(port: PortRowView) {
+    if (!isTauri() || !port.cwd) return;
+    const candidateResult = await commands.saveAsCandidates(port.pid);
+    const candidates = candidateResult.status === "ok" ? candidateResult.data : [];
+    const chosen = candidates.find((candidate) => !candidate.is_shell) ?? candidates[0];
+    const command = window.prompt("Command for this task:", chosen?.command ?? "");
+    if (!command) return;
+
+    const name = port.cwd.split("/").filter(Boolean).pop() ?? port.cwd;
+    const result = await commands.saveProject({
+      id: "",
+      name,
+      folder: port.cwd,
+      tasks: [{ id: "saved", name: "saved", command }]
+    });
+    if (result.status === "ok") {
+      projects = result.data;
+    }
+  }
 </script>
 
 <main class="popover">
@@ -176,7 +196,7 @@
 
   <div class="scroll-body">
     <ProjectList {projects} {managed} onStart={startTask} onStop={stopTask} />
-    <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} />
+    <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
     <DockerList {containers} />
   </div>
 

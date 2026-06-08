@@ -14,6 +14,7 @@ export const commands = {
 	removeProject: (id: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { id })),
 	startTask: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("start_task", { projectId, taskId })),
 	stopTask: (pgid: number) => typedError<null, string>(__TAURI_INVOKE("stop_task", { pgid })),
+	saveAsCandidates: (listenerPid: number) => typedError<SaveAsCandidate[], string>(__TAURI_INVOKE("save_as_candidates", { listenerPid })),
 };
 
 /** Events */
@@ -96,6 +97,12 @@ export type Project = {
 };
 
 export type Protocol = "Tcp";
+
+export type SaveAsCandidate = {
+	pid: number,
+	command: string,
+	is_shell: boolean,
+};
 
 export type Snapshot = {
 	ports: SnapshotSection<PortRow[]>,
