@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use thiserror::Error;
 
+mod lifecycle;
 mod parse;
 mod spawn;
 mod store;
 
+pub use lifecycle::{classify, ExitState, Lifecycle};
 pub use parse::{
     detect_package_manager, parse_compose_services, parse_package_scripts, tasks_from_folder,
 };
