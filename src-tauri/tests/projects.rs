@@ -47,3 +47,27 @@ fn spawn_pgid_equals_child_pid() {
     assert_eq!(p.pgid(), p.pid());
     wait_for_exit(&mut p);
 }
+
+#[test]
+fn kill_on_quit_kills_a_reparented_child() {
+    use portus_lib::projects::kill_group;
+
+    let mut p = spawn_task("/bin/sh", "sleep 30 & exit 0", Path::new("/")).unwrap();
+    let pgid = p.pgid();
+    let _ = wait_for_exit(&mut p);
+
+    assert_eq!(unsafe { libc::killpg(pgid as libc::pid_t, 0) }, 0);
+
+    kill_group(pgid, libc::SIGKILL);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if unsafe { libc::killpg(pgid as libc::pid_t, 0) } != 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "re-parented child should die with the group"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use thiserror::Error;
 
+mod kill;
 mod lifecycle;
 mod parse;
 mod registry;
@@ -39,3 +40,4 @@ pub enum ProjectError {
     #[error(transparent)]
     Store(#[from] StoreError),
 }
+pub use kill::{kill_all_managed, kill_group, QUIT_GRACE};

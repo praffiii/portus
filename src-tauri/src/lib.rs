@@ -6,6 +6,8 @@ pub mod projects;
 pub mod state;
 pub mod ui;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let bindings = bindings::builder();
@@ -28,6 +30,15 @@ pub fn run() {
     });
 
     builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                if let Some(registry) =
+                    app.try_state::<std::sync::Arc<std::sync::Mutex<crate::projects::ProjectRegistry>>>()
+                {
+                    crate::projects::kill_all_managed(&registry);
+                }
+            }
+        });
 }
