@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { LockKeyhole, Square } from "@lucide/svelte";
+  import { FolderPlus, LockKeyhole, Square } from "@lucide/svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import type { PortRowView } from "$lib/snapshot-adapter";
 
@@ -8,11 +8,13 @@
   let {
     ports,
     actionStates = {},
-    onKill = () => {}
+    onKill = () => {},
+    onSaveAs = () => {}
   }: {
     ports: PortRowView[];
     actionStates?: Record<string, PortActionState>;
     onKill?: (port: PortRowView) => void;
+    onSaveAs?: (port: PortRowView) => void;
   } = $props();
 
   function actionLabel(item: PortRowView, state: PortActionState) {
@@ -51,6 +53,16 @@
           </div>
         </div>
         <div class="row-actions">
+          <button
+            class="act-btn save-as"
+            type="button"
+            title={`Save ${item.process} as project`}
+            aria-label={`Save ${item.process} as project`}
+            disabled={item.pid === 0 || !item.cwd}
+            onclick={() => onSaveAs(item)}
+          >
+            <FolderPlus size={13} strokeWidth={1.9} aria-hidden="true" />
+          </button>
           <button
             class:needs-privilege={actionState === "needs_privilege"}
             class:failed={actionState === "failed"}
@@ -172,6 +184,12 @@
     border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
     color: var(--crashed);
     background: color-mix(in srgb, var(--crashed) 8%, transparent);
+  }
+
+  .act-btn.save-as:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--hairline));
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   .act-btn:disabled {
