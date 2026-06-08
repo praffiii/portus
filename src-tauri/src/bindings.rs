@@ -16,6 +16,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             state::set_active,
             state::set_idle,
             state::kill_process_tree,
+            crate::docker::subscribe_docker_logs,
+            crate::docker::unsubscribe_docker_logs,
             crate::projects::commands::load_projects,
             crate::projects::commands::suggest_tasks,
             crate::projects::commands::save_project,
@@ -68,6 +70,7 @@ mod tests {
         assert!(bindings.contains("setActive"));
         assert!(bindings.contains("setIdle"));
         assert!(bindings.contains("killProcessTree"));
+        assert!(bindings.contains("subscribeDockerLogs"));
         assert!(bindings.contains("loadProjects"));
         assert!(bindings.contains("startTask"));
         assert!(bindings.contains("subscribeLogs"));

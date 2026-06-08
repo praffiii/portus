@@ -32,6 +32,7 @@ export function snapshotToPortRows(snapshot: Snapshot) {
 
 export function containersToDockerRows(containers: DockerContainer[]) {
   return containers.map((container) => ({
+    id: container.id,
     name: container.names[0]?.replace(/^\//, "") ?? container.id.slice(0, 12),
     image: container.image,
     status: dockerStatus(container.state),

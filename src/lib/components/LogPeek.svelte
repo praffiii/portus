@@ -9,11 +9,13 @@
   let {
     projectId,
     taskId,
+    containerId,
     readonly = true,
     terminal = false
   }: {
-    projectId: string;
-    taskId: string;
+    projectId?: string;
+    taskId?: string;
+    containerId?: string;
     readonly?: boolean;
     terminal?: boolean;
   } = $props();
@@ -34,19 +36,32 @@
 
     const channel = new Channel<LogBatch>();
     channel.onmessage = append;
-    void commands.subscribeLogs(projectId, taskId, channel);
+    if (containerId) {
+      void commands.subscribeDockerLogs(containerId, channel);
+    } else if (projectId && taskId) {
+      void commands.subscribeLogs(projectId, taskId, channel);
+    }
 
     return () => {
-      void commands.unsubscribeLogs(projectId, taskId);
+      if (containerId) {
+        void commands.unsubscribeDockerLogs(containerId);
+      } else if (projectId && taskId) {
+        void commands.unsubscribeLogs(projectId, taskId);
+      }
     };
   });
 
   onDestroy(() => {
-    if (isTauri()) void commands.unsubscribeLogs(projectId, taskId);
+    if (!isTauri()) return;
+    if (containerId) {
+      void commands.unsubscribeDockerLogs(containerId);
+    } else if (projectId && taskId) {
+      void commands.unsubscribeLogs(projectId, taskId);
+    }
   });
 
   async function sendInput() {
-    if (!isTauri() || input.length === 0 || terminal) return;
+    if (!isTauri() || !projectId || !taskId || input.length === 0 || terminal) return;
     const data = `${input}\n`;
     input = "";
     await commands.sendInput(projectId, taskId, data);
