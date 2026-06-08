@@ -44,6 +44,6 @@ pub enum ProjectError {
 }
 pub use commands::{
     candidates_from_chain_for_test, load_projects, remove_project, save_project, start_task,
-    stop_task, suggest_tasks, ProjectsState, SaveAsCandidate,
+    stop_task, subscribe_logs, suggest_tasks, unsubscribe_logs, ProjectsState, SaveAsCandidate,
 };
 pub use kill::{kill_all_managed, kill_group, QUIT_GRACE};

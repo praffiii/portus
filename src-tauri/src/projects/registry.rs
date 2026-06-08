@@ -2,9 +2,11 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use specta::Type;
+use tauri::ipc::Channel;
 
 use super::lifecycle::{classify, ExitState, Lifecycle};
 use super::spawn::SpawnedProcess;
+use crate::logs::ansi::LogBatch;
 
 const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
 
@@ -89,6 +91,41 @@ impl ProjectRegistry {
             .drain(..)
             .map(|m| (m.pgid, m.process))
             .collect()
+    }
+
+    pub fn subscribe_logs(
+        &mut self,
+        project_id: &str,
+        task_id: &str,
+        channel: Channel<LogBatch>,
+    ) -> bool {
+        let Some(managed) = self.managed.iter_mut().find(|managed| {
+            managed.project_id == project_id
+                && managed.task_id == task_id
+                && managed.terminal_lifecycle.is_none()
+        }) else {
+            return false;
+        };
+        let Some(process) = managed.process.as_ref() else {
+            return false;
+        };
+        process.subscribe_logs(channel);
+        true
+    }
+
+    pub fn unsubscribe_logs(&mut self, project_id: &str, task_id: &str) -> bool {
+        let Some(managed) = self.managed.iter_mut().find(|managed| {
+            managed.project_id == project_id
+                && managed.task_id == task_id
+                && managed.terminal_lifecycle.is_none()
+        }) else {
+            return false;
+        };
+        let Some(process) = managed.process.as_ref() else {
+            return false;
+        };
+        process.unsubscribe_logs();
+        true
     }
 
     pub fn reconcile(

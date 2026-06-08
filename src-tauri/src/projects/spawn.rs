@@ -5,8 +5,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
+use tauri::ipc::Channel;
 
 use super::env::load_project_env;
+use crate::logs::ansi::{LogBatch, LogBatcher, LogLine};
 
 pub const RING_CAPACITY: usize = 200;
 
@@ -46,6 +48,7 @@ pub struct SpawnedProcess {
     child: Box<dyn Child + Send + Sync>,
     output: Arc<Mutex<RingBuffer>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    stream: Arc<Mutex<LogStream>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +67,7 @@ impl ProcessExitStatus {
 /// collapsed-glance ring buffer.
 pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedProcess> {
     let output = Arc::new(Mutex::new(RingBuffer::new(RING_CAPACITY)));
+    let stream = Arc::new(Mutex::new(LogStream::new()));
     let env_overlay = load_project_env(cwd);
 
     if let Some(notice) = env_overlay.notice {
@@ -99,7 +103,7 @@ pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedP
     let reader = pair.master.try_clone_reader().map_err(to_io_error)?;
     let writer = pair.master.take_writer().map_err(to_io_error)?;
 
-    spawn_reader(reader, output.clone());
+    spawn_reader(reader, output.clone(), stream.clone());
 
     Ok(SpawnedProcess {
         pid,
@@ -107,6 +111,7 @@ pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedP
         child,
         output,
         writer: Arc::new(Mutex::new(writer)),
+        stream,
     })
 }
 
@@ -114,7 +119,11 @@ fn to_io_error(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
 }
 
-fn spawn_reader<R: Read + Send + 'static>(mut reader: R, buffer: Arc<Mutex<RingBuffer>>) {
+fn spawn_reader<R: Read + Send + 'static>(
+    mut reader: R,
+    buffer: Arc<Mutex<RingBuffer>>,
+    stream: Arc<Mutex<LogStream>>,
+) {
     thread::spawn(move || {
         let mut pending = Vec::new();
         let mut chunk = [0u8; 4096];
@@ -124,6 +133,10 @@ fn spawn_reader<R: Read + Send + 'static>(mut reader: R, buffer: Arc<Mutex<RingB
                 Ok(n) => {
                     pending.extend_from_slice(&chunk[..n]);
                     drain_lines(&mut pending, &buffer);
+                    stream
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push_bytes(&chunk[..n]);
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
@@ -187,12 +200,72 @@ impl SpawnedProcess {
             .lines()
     }
 
+    pub fn subscribe_logs(&self, channel: Channel<LogBatch>) {
+        let replay = self.recent_output();
+        self.stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .subscribe(channel, replay);
+    }
+
+    pub fn unsubscribe_logs(&self) {
+        self.stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .unsubscribe();
+    }
+
     pub fn has_output(&self) -> bool {
         !self
             .output
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .is_empty()
+    }
+}
+
+struct LogStream {
+    batcher: LogBatcher,
+    channel: Option<Channel<LogBatch>>,
+}
+
+impl LogStream {
+    fn new() -> Self {
+        Self {
+            batcher: LogBatcher::new(RING_CAPACITY, 128 * 1024),
+            channel: None,
+        }
+    }
+
+    fn subscribe(&mut self, channel: Channel<LogBatch>, replay: Vec<String>) {
+        let replay = LogBatch {
+            lines: replay
+                .into_iter()
+                .map(|line| LogLine {
+                    html: crate::logs::ansi::sanitize_chunk(line.as_bytes()),
+                })
+                .collect(),
+        };
+        let _ = channel.send(replay);
+        self.channel = Some(channel);
+    }
+
+    fn unsubscribe(&mut self) {
+        self.channel = None;
+    }
+
+    fn push_bytes(&mut self, bytes: &[u8]) {
+        let batch = self.batcher.push_bytes(bytes);
+        if batch.lines.is_empty() {
+            return;
+        }
+        if self
+            .channel
+            .as_ref()
+            .is_some_and(|channel| channel.send(batch).is_err())
+        {
+            self.channel = None;
+        }
     }
 }
 

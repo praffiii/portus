@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use serde::Serialize;
 use specta::Type;
+use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::logs::ansi::LogBatch;
 use crate::process::{ProcessProbe, SystemProcessProbe};
 
 use super::parse::tasks_from_folder;
@@ -209,6 +211,34 @@ pub fn stop_task(pgid: u32) -> Result<(), String> {
             super::kill::kill_group(pgid, 15);
         }
     });
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_logs(
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    project_id: String,
+    task_id: String,
+    channel: Channel<LogBatch>,
+) -> Result<(), String> {
+    let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    if registry.subscribe_logs(&project_id, &task_id, channel) {
+        Ok(())
+    } else {
+        Err("task is not running".to_string())
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn unsubscribe_logs(
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    project_id: String,
+    task_id: String,
+) -> Result<(), String> {
+    let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    registry.unsubscribe_logs(&project_id, &task_id);
     Ok(())
 }
 

@@ -1,9 +1,12 @@
 #![cfg(unix)]
 
 use std::path::Path;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use portus_lib::logs::ansi::LogBatch;
 use portus_lib::projects::spawn_task;
+use tauri::ipc::{Channel, InvokeResponseBody};
 
 fn wait_for_exit(
     p: &mut portus_lib::projects::SpawnedProcess,
@@ -73,6 +76,41 @@ fn malformed_env_file_keeps_valid_values_and_reports_notice() {
 }
 
 #[test]
+fn subscribe_logs_streams_sanitized_batches_until_unsubscribed() {
+    let mut p = spawn_task(
+        "/bin/sh",
+        "printf '\\033[31mred\\033[0m\\n'; sleep 1; printf 'after\\n'",
+        Path::new("/"),
+    )
+    .unwrap();
+    let (tx, rx) = mpsc::channel();
+    p.subscribe_logs(Channel::new(move |body| {
+        tx.send(body).unwrap();
+        Ok(())
+    }));
+
+    let first = recv_log_batch_matching(&rx, |batch| {
+        batch
+            .lines
+            .iter()
+            .any(|line| line.html.contains("ansi-fg-red"))
+    });
+    assert!(first
+        .lines
+        .iter()
+        .any(|line| line.html.contains("ansi-fg-red")));
+    assert!(!first
+        .lines
+        .iter()
+        .any(|line| line.html.contains("\x1b[31m")));
+
+    p.unsubscribe_logs();
+    std::thread::sleep(Duration::from_millis(1200));
+    assert!(rx.try_recv().is_err());
+    let _ = wait_for_exit(&mut p);
+}
+
+#[test]
 fn spawn_reports_clean_exit() {
     let mut p = spawn_task("/bin/sh", "true", Path::new("/")).unwrap();
     let status = wait_for_exit(&mut p);
@@ -119,6 +157,28 @@ fn kill_on_quit_kills_a_reparented_child() {
             "re-parented child should die with the group"
         );
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn recv_log_batch_matching(
+    rx: &mpsc::Receiver<InvokeResponseBody>,
+    matches: impl Fn(&LogBatch) -> bool,
+) -> LogBatch {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(InvokeResponseBody::Json(json)) => {
+                let batch: LogBatch = serde_json::from_str(&json).unwrap();
+                if matches(&batch) {
+                    return batch;
+                }
+            }
+            Ok(InvokeResponseBody::Raw(_)) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                assert!(Instant::now() < deadline, "log batch was not received");
+            }
+            Err(error) => panic!("log channel closed before a batch arrived: {error}"),
+        }
     }
 }
 
