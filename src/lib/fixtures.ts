@@ -45,7 +45,8 @@ export const snapshotFixture: Snapshot = {
         }
       ]
     }
-  }
+  },
+  managed: []
 };
 
 function portRow(port: number, pid: number, name: string, path: string): PortRow {

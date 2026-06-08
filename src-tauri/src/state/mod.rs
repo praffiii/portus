@@ -12,6 +12,7 @@ use tokio::sync::watch;
 use crate::docker::{DockerBackend, DockerProbe, DockerSnapshot, SystemDockerBackend};
 use crate::ports::{normalize, PortProbe, PortRow};
 use crate::process::{KillTarget, ProcessController, ProcessError, ProcessInfo, ProcessProbe};
+use crate::projects::{ManagedStatus, ProjectRegistry};
 
 pub const SNAPSHOT_EVENT: &str = "snapshot";
 pub const ACTIVE_INTERVAL: Duration = Duration::from_secs(2);
@@ -77,6 +78,7 @@ pub struct Snapshot {
     pub ports: SnapshotSection<Vec<PortRow>>,
     pub processes: SnapshotSection<Vec<ProcessInfo>>,
     pub docker: SnapshotSection<DockerSnapshot>,
+    pub managed: Vec<ManagedStatus>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Type)]
@@ -100,6 +102,7 @@ pub struct SnapshotBuilder<P, Q, R> {
     docker_probe: DockerProbe<R>,
     docker_in_flight: AtomicBool,
     last_docker: Mutex<SnapshotSection<DockerSnapshot>>,
+    registry: Arc<Mutex<ProjectRegistry>>,
 }
 
 impl<P, Q, R> SnapshotBuilder<P, Q, R>
@@ -108,7 +111,12 @@ where
     Q: ProcessProbe,
     R: DockerBackend,
 {
-    pub fn new(port_probe: P, process_probe: Q, docker_backend: R) -> Self {
+    pub fn new(
+        port_probe: P,
+        process_probe: Q,
+        docker_backend: R,
+        registry: Arc<Mutex<ProjectRegistry>>,
+    ) -> Self {
         Self {
             port_probe,
             process_probe,
@@ -118,6 +126,7 @@ where
                 data: DockerSnapshot::default(),
                 error: None,
             }),
+            registry,
         }
     }
 
@@ -145,11 +154,19 @@ where
         pids.sort_unstable();
         pids.dedup();
         let processes = isolated_probe("process", || self.process_probe.info_for_pids(&pids));
+        let managed = {
+            let mut registry = self
+                .registry
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            registry.reconcile_owned(exit_of_pgid, pgid_of_pid, &pids)
+        };
 
         Snapshot {
             ports,
             processes,
             docker,
+            managed,
         }
     }
 
@@ -269,11 +286,14 @@ pub fn start(app: AppHandle) {
 
     let state = PollState::new(ACTIVE_INTERVAL, IDLE_INTERVAL);
     app.manage(state.clone());
+    let registry = Arc::new(Mutex::new(ProjectRegistry::new(Duration::from_secs(10))));
+    app.manage(registry.clone());
 
     let builder = Arc::new(SnapshotBuilder::new(
         SystemPortProbe,
         SystemProcessProbe::default(),
         SystemDockerBackend::default(),
+        registry,
     ));
     let emitter = Arc::new(TauriSnapshotEmitter { app });
     tauri::async_runtime::spawn(run_poll_loop(builder, emitter, state));
@@ -305,6 +325,40 @@ fn is_docker_proxy_row(row: &PortRow, published_ports: &[u16]) -> bool {
             let path = owner.path.to_lowercase();
             name.contains("docker") || path.contains("docker.app") || path.contains("/docker/")
         })
+}
+
+fn exit_of_pgid(pgid: u32) -> crate::projects::ExitState {
+    #[cfg(unix)]
+    {
+        let alive = unsafe { libc::kill(pgid as libc::pid_t, 0) } == 0;
+        if alive {
+            crate::projects::ExitState::Alive
+        } else {
+            crate::projects::ExitState::Signaled
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pgid;
+        crate::projects::ExitState::Alive
+    }
+}
+
+fn pgid_of_pid(pid: u32) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        let pgid = unsafe { libc::getpgid(pid as libc::pid_t) };
+        if pgid < 0 {
+            None
+        } else {
+            Some(pgid as u32)
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        None
+    }
 }
 
 struct TauriSnapshotEmitter {

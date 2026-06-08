@@ -49,6 +49,7 @@ async fn active_mode_interrupts_the_idle_wait() {
         FakePortProbe::new(vec![]),
         FakeProcessProbe::new(vec![], vec![vec![], vec![]]),
         no_docker(),
+        empty_registry(),
     ));
     let task = tokio::spawn(run_poll_loop(builder, emitter.clone(), state.clone()));
 
@@ -72,7 +73,12 @@ async fn poll_emits_ports_and_processes_in_one_snapshot() {
         vec![vec![42]],
     );
     let emitter = RecordingEmitter::default();
-    let builder = SnapshotBuilder::new(FakePortProbe::new(ports.clone()), processes, no_docker());
+    let builder = SnapshotBuilder::new(
+        FakePortProbe::new(ports.clone()),
+        processes,
+        no_docker(),
+        empty_registry(),
+    );
 
     builder.poll_and_emit(&emitter).await;
 
@@ -114,6 +120,7 @@ async fn docker_proxy_listener_is_reconciled_into_the_container_row() {
         FakePortProbe::new(vec![docker_proxy, node]),
         processes,
         docker,
+        empty_registry(),
     );
 
     let snapshot = builder.poll().await;
@@ -133,6 +140,7 @@ async fn overlapping_polls_do_not_start_overlapping_docker_calls() {
         FakePortProbe::new(vec![]),
         FakeProcessProbe::new(vec![], vec![vec![], vec![]]),
         backend,
+        empty_registry(),
     ));
 
     let first = tokio::spawn({
@@ -162,6 +170,7 @@ async fn slow_docker_poll_times_out_without_stalling_snapshot() {
             vec![vec![42]],
         ),
         backend,
+        empty_registry(),
     );
 
     let started = std::time::Instant::now();
@@ -201,6 +210,7 @@ fn snapshot_serializes_process_fields_as_human_readable_strings() {
             data: Default::default(),
             error: None,
         },
+        managed: vec![],
     };
 
     let value = serde_json::to_value(snapshot).unwrap();
@@ -226,6 +236,7 @@ async fn duplicate_listener_pids_are_resolved_once() {
         FakePortProbe::new(vec![listener(3000, 42), listener(3001, 42)]),
         process_probe,
         no_docker(),
+        empty_registry(),
     );
 
     builder.poll().await;
@@ -241,6 +252,7 @@ async fn panicking_process_probe_does_not_blank_ports_or_skip_emit() {
         FakePortProbe::new(ports.clone()),
         PanickingProcessProbe,
         no_docker(),
+        empty_registry(),
     );
 
     builder.poll_and_emit(&emitter).await;
@@ -262,6 +274,7 @@ async fn panicking_port_probe_still_emits_a_snapshot() {
         PanickingPortProbe,
         FakeProcessProbe::new(vec![], vec![vec![]]),
         no_docker(),
+        empty_registry(),
     );
 
     builder.poll_and_emit(&emitter).await;
@@ -403,4 +416,10 @@ fn port_row(port: u16, pid: u32) -> PortRow {
 
 fn no_docker() -> FakeDockerBackend {
     FakeDockerBackend::new(vec![Err(DockerBackendError::NotDetected)])
+}
+
+fn empty_registry() -> Arc<Mutex<portus_lib::projects::ProjectRegistry>> {
+    Arc::new(Mutex::new(portus_lib::projects::ProjectRegistry::new(
+        Duration::from_secs(10),
+    )))
 }

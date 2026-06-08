@@ -174,6 +174,7 @@ mod tests {
                 data: Default::default(),
                 error: None,
             },
+            managed: vec![],
         };
 
         let value = serde_json::to_value(snapshot).expect("lossy strings must serialize");
