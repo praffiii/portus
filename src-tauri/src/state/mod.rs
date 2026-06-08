@@ -283,11 +283,23 @@ impl From<ProcessError> for KillProcessError {
 pub fn start(app: AppHandle) {
     use crate::ports::SystemPortProbe;
     use crate::process::SystemProcessProbe;
+    use crate::projects::{ProjectStore, ProjectsState};
 
     let state = PollState::new(ACTIVE_INTERVAL, IDLE_INTERVAL);
     app.manage(state.clone());
     let registry = Arc::new(Mutex::new(ProjectRegistry::new(Duration::from_secs(10))));
     app.manage(registry.clone());
+    let store = ProjectStore::new(
+        app.path()
+            .app_config_dir()
+            .expect("app config dir")
+            .join("projects.json"),
+    );
+    let (projects_state, notice) = ProjectsState::load(store);
+    if let Some(notice) = notice {
+        eprintln!("projects: {notice}");
+    }
+    app.manage(projects_state);
 
     let builder = Arc::new(SnapshotBuilder::new(
         SystemPortProbe,

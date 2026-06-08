@@ -14,13 +14,22 @@ pub fn builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             state::set_active,
             state::set_idle,
-            state::kill_process_tree
+            state::kill_process_tree,
+            crate::projects::commands::load_projects,
+            crate::projects::commands::suggest_tasks,
+            crate::projects::commands::save_project,
+            crate::projects::commands::remove_project,
+            crate::projects::commands::start_task,
+            crate::projects::commands::stop_task
         ])
         .events(collect_events![Snapshot])
         .typ::<DockerContainer>()
         .typ::<DockerSnapshot>()
         .typ::<KillProcessError>()
         .typ::<KillTarget>()
+        .typ::<crate::projects::Project>()
+        .typ::<crate::projects::Task>()
+        .typ::<crate::projects::ManagedStatus>()
         .dangerously_cast_bigints_to_number()
 }
 
@@ -50,6 +59,8 @@ mod tests {
         assert!(bindings.contains("setActive"));
         assert!(bindings.contains("setIdle"));
         assert!(bindings.contains("killProcessTree"));
+        assert!(bindings.contains("loadProjects"));
+        assert!(bindings.contains("startTask"));
         assert!(bindings.contains("snapshot"));
         assert!(bindings.contains("export type Snapshot"));
     }

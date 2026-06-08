@@ -8,6 +8,12 @@ export const commands = {
 	setActive: () => __TAURI_INVOKE<void>("set_active"),
 	setIdle: () => __TAURI_INVOKE<void>("set_idle"),
 	killProcessTree: (target: KillTarget) => typedError<null, KillProcessError>(__TAURI_INVOKE("kill_process_tree", { target })),
+	loadProjects: () => __TAURI_INVOKE<Project[]>("load_projects"),
+	suggestTasks: (folder: string) => __TAURI_INVOKE<Task[]>("suggest_tasks", { folder }),
+	saveProject: (project: Project) => typedError<Project[], string>(__TAURI_INVOKE("save_project", { project })),
+	removeProject: (id: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { id })),
+	startTask: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("start_task", { projectId, taskId })),
+	stopTask: (pgid: number) => typedError<null, string>(__TAURI_INVOKE("stop_task", { pgid })),
 };
 
 /** Events */
@@ -44,6 +50,16 @@ export type KillTarget = {
 	expected_port: number | null,
 };
 
+export type Lifecycle = "starting" | "running" | "running_no_port" | "exited" | "crashed";
+
+export type ManagedStatus = {
+	project_id: string,
+	task_id: string,
+	pid: number,
+	lifecycle: Lifecycle,
+	recent_output: string[],
+};
+
 export type PortOwner = {
 	pid: number,
 	name: string,
@@ -72,17 +88,31 @@ export type ProcessInfo = {
 	memory_bytes: number,
 };
 
+export type Project = {
+	id: string,
+	name: string,
+	folder: string,
+	tasks: Task[],
+};
+
 export type Protocol = "Tcp";
 
 export type Snapshot = {
 	ports: SnapshotSection<PortRow[]>,
 	processes: SnapshotSection<ProcessInfo[]>,
 	docker: SnapshotSection<DockerSnapshot>,
+	managed: ManagedStatus[],
 };
 
 export type SnapshotSection<T> = {
 	data: T,
 	error: string | null,
+};
+
+export type Task = {
+	id: string,
+	name: string,
+	command: string,
 };
 
 /* Tauri Specta runtime */
