@@ -1,11 +1,12 @@
 {
   "name": "portus",
-  "version": "0.1.0",
+  "version": "0.1.0-beta",
   "description": "Activity Monitor for your dev stack.",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "bindings": "cargo run --manifest-path src-tauri/Cargo.toml --bin export-bindings",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",

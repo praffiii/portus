@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System, UpdateKind};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use super::{ProcessError, ProcessInfo, ProcessProbe, ProcessSignal, ProcessSnapshot};
 
@@ -57,18 +57,51 @@ impl ProcessProbe for SystemProcessProbe {
             .collect())
     }
 
-    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<bool, ProcessError> {
+    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<(), ProcessError> {
         let sysinfo_pid = Pid::from_u32(pid);
         let mut system = self.lock_system();
         system.refresh_processes(ProcessesToUpdate::Some(&[sysinfo_pid]), true);
-        let Some(process) = system.process(sysinfo_pid) else {
-            return Ok(true);
-        };
-        let signal = match signal {
-            ProcessSignal::Terminate => Signal::Term,
-            ProcessSignal::Kill => Signal::Kill,
-        };
-        Ok(process.kill_with(signal).unwrap_or(false))
+        if system.process(sysinfo_pid).is_none() {
+            return Ok(());
+        }
+        send_signal(pid, signal)
+    }
+}
+
+#[cfg(unix)]
+fn send_signal(pid: u32, signal: ProcessSignal) -> Result<(), ProcessError> {
+    let raw_signal = match signal {
+        ProcessSignal::Terminate => libc::SIGTERM,
+        ProcessSignal::Kill => libc::SIGKILL,
+    };
+    let result = unsafe { libc::kill(pid as libc::pid_t, raw_signal) };
+    if result == 0 {
+        return Ok(());
+    }
+
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(libc::ESRCH) => Ok(()),
+        Some(libc::EPERM) => Err(ProcessError::PermissionDenied { pid }),
+        _ => Err(ProcessError::SignalFailed { pid, signal }),
+    }
+}
+
+#[cfg(not(unix))]
+fn send_signal(pid: u32, signal: ProcessSignal) -> Result<(), ProcessError> {
+    let sysinfo_signal = match signal {
+        ProcessSignal::Terminate => sysinfo::Signal::Term,
+        ProcessSignal::Kill => sysinfo::Signal::Kill,
+    };
+    let mut system = System::new();
+    let sysinfo_pid = Pid::from_u32(pid);
+    system.refresh_processes(ProcessesToUpdate::Some(&[sysinfo_pid]), true);
+    let Some(process) = system.process(sysinfo_pid) else {
+        return Ok(());
+    };
+    if process.kill_with(sysinfo_signal).unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(ProcessError::SignalFailed { pid, signal })
     }
 }
 
@@ -135,6 +168,10 @@ mod tests {
             },
             processes: SnapshotSection {
                 data: vec![process],
+                error: None,
+            },
+            docker: SnapshotSection {
+                data: Default::default(),
                 error: None,
             },
         };

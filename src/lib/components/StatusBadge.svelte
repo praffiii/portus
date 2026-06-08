@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ServiceStatus } from "$lib/types";
+  import type { ServiceStatus } from "$lib/snapshot-adapter";
 
   let { status }: { status: ServiceStatus } = $props();
 
@@ -29,19 +29,19 @@
   }
 
   .status-running {
-    color: #16a34a;
+    color: var(--running);
   }
 
   .status-waiting {
-    color: #d97706;
+    color: var(--waiting);
   }
 
   .status-stopped {
-    color: #9ca3af;
+    color: var(--stopped);
   }
 
   .status-crashed {
-    color: #dc2626;
+    color: var(--crashed);
   }
 
   .sr-only {
@@ -54,20 +54,6 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .status-running {
-      color: #4ade80;
-    }
-
-    .status-waiting {
-      color: #fbbf24;
-    }
-
-    .status-crashed {
-      color: #f87171;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {

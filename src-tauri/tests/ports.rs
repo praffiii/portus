@@ -37,3 +37,33 @@ fn system_probe_detects_dummy_tcp_listener() {
         "expected TCP listener on port {port}, got {detected:#?}"
     );
 }
+
+#[test]
+fn normalize_collapses_dual_stack_into_one_row() {
+    use portus_lib::ports::{normalize, AddressFamily, BindScope};
+
+    let rows = normalize(vec![
+        PortListener {
+            protocol: Protocol::Tcp,
+            socket: "0.0.0.0:3000".parse().unwrap(),
+            process: ListenerProcess {
+                pid: 1,
+                name: "web".to_string(),
+                path: "/web".to_string(),
+            },
+        },
+        PortListener {
+            protocol: Protocol::Tcp,
+            socket: "[::]:3000".parse().unwrap(),
+            process: ListenerProcess {
+                pid: 1,
+                name: "web".to_string(),
+                path: "/web".to_string(),
+            },
+        },
+    ]);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].scope, BindScope::AllInterfaces);
+    assert_eq!(rows[0].families, vec![AddressFamily::V4, AddressFamily::V6]);
+}

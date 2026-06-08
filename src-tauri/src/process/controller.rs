@@ -1,9 +1,20 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
 use crate::ports::PortProbe;
 
-use super::{descendants_of, ProcessError, ProcessProbe, ProcessSignal};
+use super::{descendants_of, ProcessError, ProcessInfo, ProcessProbe, ProcessSignal};
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, Type)]
+pub struct KillTarget {
+    pub pid: u32,
+    pub executable: Option<String>,
+    pub start_time: u64,
+    pub expected_port: Option<u16>,
+}
 
 pub struct ProcessController<P, Q> {
     process_probe: P,
@@ -31,14 +42,12 @@ where
         }
     }
 
-    pub fn kill_tree(&self, root_pid: u32, expected_port: Option<u16>) -> Result<(), ProcessError> {
-        if self.process_probe.info_for_pids(&[root_pid])?.is_empty() {
-            return Err(ProcessError::NotFound(root_pid));
-        }
+    pub fn kill_tree(&self, target: KillTarget) -> Result<(), ProcessError> {
+        self.revalidate_target(&target)?;
 
         let snapshots = self.process_probe.all_snapshots()?;
-        let mut tree = vec![root_pid];
-        tree.extend(descendants_of(root_pid, &snapshots));
+        let mut tree = vec![target.pid];
+        tree.extend(descendants_of(target.pid, &snapshots));
 
         self.signal_all(&tree, ProcessSignal::Terminate)?;
         let remaining = self.wait_for_exit(&tree, self.grace_period)?;
@@ -50,17 +59,30 @@ where
             }
         }
 
-        if let Some(port) = expected_port {
+        if let Some(port) = target.expected_port {
             self.verify_port_released(port)?;
+        }
+        Ok(())
+    }
+
+    fn revalidate_target(&self, target: &KillTarget) -> Result<(), ProcessError> {
+        let Some(live) = self.process_probe.info_for_pids(&[target.pid])?.pop() else {
+            return Err(ProcessError::NotFound(target.pid));
+        };
+
+        if !identity_matches(&live, target) {
+            return Err(ProcessError::IdentityMismatch { pid: target.pid });
+        }
+
+        if let Some(port) = target.expected_port {
+            self.verify_port_owned_by(port, target.pid)?;
         }
         Ok(())
     }
 
     fn signal_all(&self, pids: &[u32], signal: ProcessSignal) -> Result<(), ProcessError> {
         for &pid in pids {
-            if !self.process_probe.signal(pid, signal)? {
-                return Err(ProcessError::SignalFailed { pid, signal });
-            }
+            self.process_probe.signal(pid, signal)?;
         }
         Ok(())
     }
@@ -99,6 +121,25 @@ where
             thread::sleep(self.poll_interval);
         }
     }
+
+    fn verify_port_owned_by(&self, port: u16, pid: u32) -> Result<(), ProcessError> {
+        let owns_port = self
+            .port_probe
+            .scan()
+            .map_err(|error| ProcessError::PortVerification(error.to_string()))?
+            .iter()
+            .any(|listener| listener.socket.port() == port && listener.process.pid == pid);
+
+        if owns_port {
+            Ok(())
+        } else {
+            Err(ProcessError::PortOwnerMismatch { pid, port })
+        }
+    }
+}
+
+fn identity_matches(live: &ProcessInfo, target: &KillTarget) -> bool {
+    live.start_time == target.start_time && live.executable == target.executable
 }
 
 #[cfg(test)]
@@ -119,21 +160,60 @@ mod tests {
     #[test]
     fn kill_tree_returns_not_found_when_root_is_missing() {
         let process_probe = FakeProcessProbe::new(vec![], vec![vec![]]);
-        let controller = controller(process_probe, released_port_probe());
+        let controller = controller(process_probe, port_released_after_precheck(PORT));
 
-        let error = controller.kill_tree(ROOT_PID, Some(PORT)).unwrap_err();
+        let error = controller.kill_tree(target(Some(PORT))).unwrap_err();
 
         assert!(matches!(error, ProcessError::NotFound(ROOT_PID)));
+    }
+
+    #[test]
+    fn kill_tree_returns_identity_mismatch_when_pid_was_reused() {
+        let process_probe =
+            FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID]])
+                .with_process_info(ROOT_PID, process_info(ROOT_PID, 2, Some("/new-bin")));
+        let controller = controller(process_probe, port_released_after_precheck(PORT));
+
+        let error = controller.kill_tree(target(None)).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProcessError::IdentityMismatch { pid: ROOT_PID }
+        ));
+    }
+
+    #[test]
+    fn kill_tree_returns_port_owner_mismatch_when_pid_no_longer_holds_port() {
+        let process_probe =
+            FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID]]);
+        let controller = controller(process_probe, listening_port_probe_for(PORT, CHILD_PID));
+
+        let error = controller.kill_tree(target(Some(PORT))).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProcessError::PortOwnerMismatch {
+                pid: ROOT_PID,
+                port: PORT
+            }
+        ));
     }
 
     #[test]
     fn kill_tree_returns_signal_failed_when_signal_is_rejected() {
         let process_probe =
             FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID]])
-                .with_signal_result(ROOT_PID, ProcessSignal::Terminate, false);
+                .with_signal_error(
+                    ROOT_PID,
+                    ProcessSignal::Terminate,
+                    ProcessError::SignalFailed {
+                        pid: ROOT_PID,
+                        signal: ProcessSignal::Terminate,
+                    },
+                );
         let controller = controller(process_probe, released_port_probe());
 
-        let error = controller.kill_tree(ROOT_PID, None).unwrap_err();
+        let error = controller.kill_tree(target(None)).unwrap_err();
 
         assert!(matches!(
             error,
@@ -141,6 +221,25 @@ mod tests {
                 pid: ROOT_PID,
                 signal: ProcessSignal::Terminate
             }
+        ));
+    }
+
+    #[test]
+    fn kill_tree_returns_permission_denied_when_signal_needs_privilege() {
+        let process_probe =
+            FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID]])
+                .with_signal_error(
+                    ROOT_PID,
+                    ProcessSignal::Terminate,
+                    ProcessError::PermissionDenied { pid: ROOT_PID },
+                );
+        let controller = controller(process_probe, released_port_probe());
+
+        let error = controller.kill_tree(target(None)).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProcessError::PermissionDenied { pid: ROOT_PID }
         ));
     }
 
@@ -156,9 +255,9 @@ mod tests {
             vec![vec![ROOT_PID, CHILD_PID, GRANDCHILD_PID], vec![]],
         );
         let inspector = process_probe.clone();
-        let controller = controller(process_probe, released_port_probe());
+        let controller = controller(process_probe, port_released_after_precheck(PORT));
 
-        controller.kill_tree(ROOT_PID, Some(PORT)).unwrap();
+        controller.kill_tree(target(Some(PORT))).unwrap();
 
         assert_eq!(
             inspector.signals(),
@@ -179,7 +278,7 @@ mod tests {
         let inspector = process_probe.clone();
         let controller = controller(process_probe, released_port_probe());
 
-        controller.kill_tree(ROOT_PID, None).unwrap();
+        controller.kill_tree(target(None)).unwrap();
 
         assert_eq!(
             inspector.signals(),
@@ -198,7 +297,7 @@ mod tests {
         );
         let controller = controller(process_probe, released_port_probe());
 
-        let error = controller.kill_tree(ROOT_PID, None).unwrap_err();
+        let error = controller.kill_tree(target(None)).unwrap_err();
 
         assert!(matches!(
             error,
@@ -212,7 +311,7 @@ mod tests {
             FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID], vec![]]);
         let controller = controller(process_probe, listening_port_probe(PORT));
 
-        let error = controller.kill_tree(ROOT_PID, Some(PORT)).unwrap_err();
+        let error = controller.kill_tree(target(Some(PORT))).unwrap_err();
 
         assert!(matches!(error, ProcessError::PortStillListening(PORT)));
     }
@@ -223,7 +322,7 @@ mod tests {
             FakeProcessProbe::new(vec![snapshot(ROOT_PID, None)], vec![vec![ROOT_PID], vec![]]);
         let controller = controller(process_probe, listening_port_probe(PORT));
 
-        controller.kill_tree(ROOT_PID, None).unwrap();
+        controller.kill_tree(target(None)).unwrap();
     }
 
     fn controller(
@@ -237,19 +336,54 @@ mod tests {
         ProcessSnapshot { pid, parent_pid }
     }
 
+    fn target(expected_port: Option<u16>) -> KillTarget {
+        KillTarget {
+            pid: ROOT_PID,
+            executable: Some("/fake".to_string()),
+            start_time: 1,
+            expected_port,
+        }
+    }
+
+    fn process_info(pid: u32, start_time: u64, executable: Option<&str>) -> ProcessInfo {
+        ProcessInfo {
+            pid,
+            parent_pid: None,
+            name: format!("fake-{pid}"),
+            command: Vec::new(),
+            executable: executable.map(str::to_string),
+            cwd: None,
+            start_time,
+            cpu_usage: 0.0,
+            memory_bytes: 0,
+        }
+    }
+
     fn released_port_probe() -> FakePortProbe {
         FakePortProbe::new(vec![])
     }
 
     fn listening_port_probe(port: u16) -> FakePortProbe {
-        FakePortProbe::new(vec![PortListener {
+        listening_port_probe_for(port, ROOT_PID)
+    }
+
+    fn listening_port_probe_for(port: u16, pid: u32) -> FakePortProbe {
+        FakePortProbe::new(vec![listener(port, pid)])
+    }
+
+    fn port_released_after_precheck(port: u16) -> FakePortProbe {
+        FakePortProbe::with_scans(vec![vec![listener(port, ROOT_PID)], vec![]])
+    }
+
+    fn listener(port: u16, pid: u32) -> PortListener {
+        PortListener {
             protocol: Protocol::Tcp,
             socket: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
             process: ListenerProcess {
-                pid: ROOT_PID,
+                pid,
                 name: "test".to_string(),
                 path: "/test".to_string(),
             },
-        }])
+        }
     }
 }

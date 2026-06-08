@@ -2656,7 +2656,7 @@ dependencies = [
 
 [[package]]
 name = "portus"
-version = "0.1.0"
+version = "0.1.0-beta"
 dependencies = [
  "bollard",
  "libc",
@@ -2664,12 +2664,14 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "specta-typescript",
  "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
  "tauri-plugin-positioner",
  "tauri-specta",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "window-vibrancy",

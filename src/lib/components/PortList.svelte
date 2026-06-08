@@ -1,15 +1,26 @@
 <script lang="ts">
+  import { LockKeyhole, Square } from "@lucide/svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { PortItem, PortSource } from "$lib/types";
+  import type { PortRowView } from "$lib/snapshot-adapter";
 
-  let { ports }: { ports: PortItem[] } = $props();
+  export type PortActionState = "idle" | "killing" | "needs_privilege" | "failed";
 
-  const sourceClass: Record<PortSource, string> = {
-    system: "source-system",
-    "from IDE": "source-ide",
-    "from Terminal": "source-terminal",
-    "orphan?": "source-orphan"
-  };
+  let {
+    ports,
+    actionStates = {},
+    onKill = () => {}
+  }: {
+    ports: PortRowView[];
+    actionStates?: Record<string, PortActionState>;
+    onKill?: (port: PortRowView) => void;
+  } = $props();
+
+  function actionLabel(item: PortRowView, state: PortActionState) {
+    if (state === "needs_privilege") return `${item.process} needs elevated privileges`;
+    if (state === "killing") return `Killing ${item.process}`;
+    if (state === "failed") return `Kill ${item.process} failed`;
+    return `Kill ${item.process}`;
+  }
 </script>
 
 <section aria-labelledby="ports-heading">
@@ -19,24 +30,43 @@
   </div>
 
   <ul>
-    {#each ports as item (`${item.pid}:${item.port ?? "none"}`)}
+    {#each ports as item (item.key)}
+      {@const actionState = actionStates[item.key] ?? "idle"}
       <li>
         <StatusBadge status={item.status} />
-        <span class:port-muted={item.port === null} class="port">{item.port === null ? "—" : `:${item.port}`}</span>
+        <span class="port">:{item.port}</span>
         <div class="details">
           <div class="primary">
             <span class="process" title={item.process}>{item.process}</span>
-            <span class={`source ${sourceClass[item.source]}`}>{item.source}</span>
+            <span class="source" class:source-orphan={item.source === "orphan?"}>{item.source}</span>
           </div>
-          <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent}% CPU · ${item.memoryMb} MB`}>
+          <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent.toFixed(1)}% CPU · ${item.memoryMb} MB`}>
             <span class="cwd">{item.cwd}</span>
-            <span aria-hidden="true">·</span>
-            <span class="metric">PID {item.pid}</span>
-            <span aria-hidden="true">·</span>
-            <span class="metric">{item.cpuPercent}% CPU</span>
-            <span aria-hidden="true">·</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
+            <span class="metric">{item.pid}</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
+            <span class="metric">{item.cpuPercent.toFixed(1)}%</span>
+            <span class="sec-dot" aria-hidden="true">·</span>
             <span class="metric">{item.memoryMb} MB</span>
           </div>
+        </div>
+        <div class="row-actions">
+          <button
+            class:needs-privilege={actionState === "needs_privilege"}
+            class:failed={actionState === "failed"}
+            class="act-btn kill"
+            type="button"
+            title={actionLabel(item, actionState)}
+            aria-label={actionLabel(item, actionState)}
+            disabled={item.pid === 0 || actionState === "killing" || actionState === "needs_privilege"}
+            onclick={() => onKill(item)}
+          >
+            {#if actionState === "needs_privilege"}
+              <LockKeyhole size={13} strokeWidth={1.9} aria-hidden="true" />
+            {:else}
+              <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
+            {/if}
+          </button>
         </div>
       </li>
     {/each}
@@ -79,7 +109,7 @@
 
   li {
     display: grid;
-    grid-template-columns: 16px 54px minmax(0, 1fr);
+    grid-template-columns: 16px 52px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
     min-height: 54px;
@@ -94,7 +124,66 @@
   }
 
   li:hover {
-    background: var(--surface);
+    background: var(--surface-hi);
+  }
+
+  .sec-dot {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    opacity: 0.7;
+    user-select: none;
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 100ms ease;
+  }
+
+  li:hover .row-actions,
+  li:focus-within .row-actions {
+    opacity: 1;
+  }
+
+  .act-btn {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: default;
+    transition:
+      color 100ms ease,
+      background 100ms ease,
+      border-color 100ms ease;
+  }
+
+  .act-btn:not(:disabled) {
+    cursor: pointer;
+  }
+
+  .act-btn:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
+    color: var(--crashed);
+    background: color-mix(in srgb, var(--crashed) 8%, transparent);
+  }
+
+  .act-btn:disabled {
+    opacity: 0.72;
+  }
+
+  .act-btn.needs-privilege {
+    color: var(--waiting);
+  }
+
+  .act-btn.failed {
+    color: var(--crashed);
   }
 
   .port,
@@ -110,10 +199,6 @@
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .port-muted {
-    color: var(--text-muted);
   }
 
   .details {
@@ -137,71 +222,47 @@
     white-space: nowrap;
   }
 
+  /* Source tags are best-effort hints, not ground truth — so they stay quiet and uniform. */
   .source {
     flex: 0 0 auto;
+    color: var(--text-muted);
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 400;
     white-space: nowrap;
   }
 
-  .source-system {
-    color: #6b7280;
-  }
-
-  .source-ide {
-    color: #7c3aed;
-  }
-
-  .source-terminal {
-    color: #475569;
-  }
-
   .source-orphan {
-    color: #d97706;
+    font-style: italic;
   }
 
   .secondary {
     display: flex;
     min-width: 0;
-    gap: 5px;
+    gap: 4px;
     margin-top: 3px;
     overflow: hidden;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.25;
     white-space: nowrap;
   }
 
   .cwd {
-    min-width: 24px;
+    min-width: 20px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .metric {
     flex: 0 0 auto;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .source-system {
-      color: #9ca3af;
-    }
-
-    .source-ide {
-      color: #a78bfa;
-    }
-
-    .source-terminal {
-      color: #94a3b8;
-    }
-
-    .source-orphan {
-      color: #fbbf24;
-    }
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    li {
+    li,
+    .row-actions,
+    .act-btn {
       transition: none;
     }
   }

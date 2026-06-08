@@ -1,4 +1,5 @@
 use serde::Serialize;
+use specta::Type;
 use thiserror::Error;
 
 mod controller;
@@ -6,12 +7,12 @@ mod descendants;
 mod fake;
 mod system;
 
-pub use controller::ProcessController;
+pub use controller::{KillTarget, ProcessController};
 pub use descendants::descendants_of;
 pub use fake::FakeProcessProbe;
 pub use system::SystemProcessProbe;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub parent_pid: Option<u32>,
@@ -36,12 +37,18 @@ pub enum ProcessSignal {
     Kill,
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum ProcessError {
     #[error("failed to inspect processes: {0}")]
     Inspect(String),
     #[error("process {0} is no longer running")]
     NotFound(u32),
+    #[error("process {pid} no longer matches the selected row")]
+    IdentityMismatch { pid: u32 },
+    #[error("process {pid} no longer owns port {port}")]
+    PortOwnerMismatch { pid: u32, port: u16 },
+    #[error("process {pid} needs elevated privileges")]
+    PermissionDenied { pid: u32 },
     #[error("failed to send {signal:?} to process {pid}")]
     SignalFailed { pid: u32, signal: ProcessSignal },
     #[error("processes are still running after signal escalation: {0:?}")]
@@ -57,5 +64,5 @@ pub trait ProcessProbe: Send + Sync {
 
     fn all_snapshots(&self) -> Result<Vec<ProcessSnapshot>, ProcessError>;
 
-    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<bool, ProcessError>;
+    fn signal(&self, pid: u32, signal: ProcessSignal) -> Result<(), ProcessError>;
 }
