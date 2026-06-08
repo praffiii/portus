@@ -7,7 +7,7 @@
   import { commands, events, type Project, type Snapshot } from "$lib/bindings";
   import DockerList from "$lib/components/DockerList.svelte";
   import PortList, { type PortActionState } from "$lib/components/PortList.svelte";
-  import ProjectList from "$lib/components/ProjectList.svelte";
+  import ProjectList, { type TaskActionState } from "$lib/components/ProjectList.svelte";
   import { snapshotFixture } from "$lib/fixtures";
   import { containersToDockerRows, snapshotToPortRows, type PortRowView } from "$lib/snapshot-adapter";
 
@@ -17,6 +17,7 @@
   let snapshot: Snapshot = $state(snapshotFixture);
   let projects: Project[] = $state([]);
   let portActionStates: Record<string, PortActionState> = $state({});
+  let taskActions: Record<string, TaskActionState> = $state({});
   const managed = $derived(snapshot.managed);
   const ports = $derived(snapshotToPortRows(snapshot));
   const containers = $derived(containersToDockerRows(snapshot.docker.data.containers));
@@ -28,6 +29,26 @@
     ports.filter((item) => item.status === "waiting").length +
       containers.filter((item) => item.status === "waiting").length
   );
+
+  $effect(() => {
+    const nextActions = { ...taskActions };
+    let changed = false;
+
+    for (const [key, action] of Object.entries(taskActions)) {
+      if (typeof action === "object") continue;
+      const status = managed.find((item) => taskKey(item.project_id, item.task_id) === key);
+      if (
+        (action === "starting" && status) ||
+        (action === "stopping" &&
+          (!status || status.lifecycle === "exited" || status.lifecycle === "crashed"))
+      ) {
+        delete nextActions[key];
+        changed = true;
+      }
+    }
+
+    if (changed) taskActions = nextActions;
+  });
 
   onMount(() => {
     if (!isTauri()) return;
@@ -142,12 +163,30 @@
 
   async function startTask(projectId: string, taskId: string) {
     if (!isTauri()) return;
-    await commands.startTask(projectId, taskId);
+    const key = taskKey(projectId, taskId);
+    if (taskActions[key] === "starting") return;
+
+    taskActions = { ...taskActions, [key]: "starting" };
+    const result = await commands.startTask(projectId, taskId);
+    if (result.status === "error") {
+      taskActions = { ...taskActions, [key]: { kind: "failed", message: result.error } };
+    }
   }
 
-  async function stopTask(pid: number) {
+  async function stopTask(pid: number, projectId: string, taskId: string) {
     if (!isTauri()) return;
-    await commands.stopTask(pid);
+    const key = taskKey(projectId, taskId);
+    if (taskActions[key] === "stopping") return;
+
+    taskActions = { ...taskActions, [key]: "stopping" };
+    const result = await commands.stopTask(pid);
+    if (result.status === "error") {
+      taskActions = { ...taskActions, [key]: { kind: "failed", message: result.error } };
+    }
+  }
+
+  function taskKey(projectId: string, taskId: string): string {
+    return `${projectId}:${taskId}`;
   }
 
   async function saveAsProject(port: PortRowView) {
@@ -195,7 +234,7 @@
   </header>
 
   <div class="scroll-body">
-    <ProjectList {projects} {managed} onStart={startTask} onStop={stopTask} />
+    <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
     <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
     <DockerList {containers} />
   </div>

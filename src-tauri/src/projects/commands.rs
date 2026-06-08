@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::Serialize;
 use specta::Type;
@@ -32,7 +33,31 @@ impl ProjectsState {
 }
 
 fn login_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    std::env::var("SHELL")
+        .ok()
+        .filter(|shell| !shell.trim().is_empty())
+        .or_else(login_shell_from_passwd)
+        .unwrap_or_else(|| "/bin/zsh".to_string())
+}
+
+#[cfg(unix)]
+fn login_shell_from_passwd() -> Option<String> {
+    unsafe {
+        let passwd = libc::getpwuid(libc::getuid());
+        if passwd.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr((*passwd).pw_shell)
+            .to_str()
+            .ok()
+            .filter(|shell| !shell.trim().is_empty())
+            .map(ToOwned::to_owned)
+    }
+}
+
+#[cfg(not(unix))]
+fn login_shell_from_passwd() -> Option<String> {
+    None
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Type)]
@@ -62,7 +87,11 @@ pub fn candidates_from_chain(
 
     let mut out = Vec::new();
     let mut current = Some(listener_pid);
+    let mut visited = std::collections::HashSet::new();
     while let Some(pid) = current {
+        if !visited.insert(pid) || visited.len() > 32 {
+            break;
+        }
         let Some(entry) = by_pid.get(&pid) else {
             break;
         };
@@ -155,22 +184,31 @@ pub fn start_task(
         (project.folder.clone(), task.command.clone())
     };
 
+    let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    if registry.has_active_task(&project_id, &task_id) {
+        return Err("task is already running".to_string());
+    }
     let process =
         spawn_task(&login_shell(), &command, &PathBuf::from(folder)).map_err(|e| e.to_string())?;
-    registry
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(project_id, task_id, process);
+    registry.insert(project_id, task_id, process);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn stop_task(pgid: u32) -> Result<(), String> {
-    #[cfg(unix)]
-    super::kill::kill_group(pgid, libc::SIGTERM);
-    #[cfg(not(unix))]
-    super::kill::kill_group(pgid, 15);
+    std::thread::spawn(move || {
+        #[cfg(unix)]
+        {
+            super::kill::kill_group(pgid, libc::SIGTERM);
+            std::thread::sleep(Duration::from_millis(500));
+            super::kill::kill_group(pgid, libc::SIGKILL);
+        }
+        #[cfg(not(unix))]
+        {
+            super::kill::kill_group(pgid, 15);
+        }
+    });
     Ok(())
 }
 
@@ -231,5 +269,23 @@ mod tests {
         assert_eq!(candidates[0].command, "node server.js");
         assert!(candidates.iter().any(|c| c.command == "pnpm dev"));
         assert_eq!(default_pick(&candidates).command, "pnpm dev");
+    }
+
+    #[test]
+    fn walk_stops_on_parent_cycles() {
+        let procs = vec![
+            (
+                100,
+                Some(200),
+                vec!["node".to_string(), "server.js".to_string()],
+            ),
+            (200, Some(100), vec!["pnpm".to_string(), "dev".to_string()]),
+        ];
+
+        let candidates = candidates_from_chain(100, &procs);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].pid, 100);
+        assert_eq!(candidates[1].pid, 200);
     }
 }

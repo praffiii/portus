@@ -1,3 +1,7 @@
+<script module lang="ts">
+  export type TaskActionState = "starting" | "stopping" | { kind: "failed"; message: string };
+</script>
+
 <script lang="ts">
   import { Play, Square } from "@lucide/svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
@@ -7,14 +11,22 @@
   let {
     projects,
     managed,
+    taskActions,
     onStart,
     onStop
   }: {
     projects: Project[];
     managed: ManagedStatus[];
+    taskActions: Record<string, TaskActionState>;
     onStart: (projectId: string, taskId: string) => void;
-    onStop: (pid: number) => void;
+    onStop: (pid: number, projectId: string, taskId: string) => void;
   } = $props();
+
+  const OUTPUT_LIMIT = 8;
+
+  function taskKey(projectId: string, taskId: string): string {
+    return `${projectId}:${taskId}`;
+  }
 
   function statusFor(projectId: string, taskId: string): ManagedStatus | undefined {
     return managed.find((m) => m.project_id === projectId && m.task_id === taskId);
@@ -29,6 +41,15 @@
 
   function labelFor(lifecycle: Lifecycle): string {
     return lifecycle.replaceAll("_", " ");
+  }
+
+  function isFailed(action: TaskActionState | undefined): action is { kind: "failed"; message: string } {
+    return typeof action === "object" && action.kind === "failed";
+  }
+
+  function recentLines(status: ManagedStatus | undefined): string[] {
+    if (!status || (status.lifecycle !== "exited" && status.lifecycle !== "crashed")) return [];
+    return status.recent_output.slice(-OUTPUT_LIMIT);
   }
 </script>
 
@@ -45,34 +66,61 @@
       </li>
       {#each project.tasks as task (task.id)}
         {@const status = statusFor(project.id, task.id)}
-        <li class="task-row">
-          <StatusBadge status={status ? badgeFor(status.lifecycle) : "stopped"} />
-          <div class="details">
-            <div class="primary">
-              <span class="task-name" title={task.command}>{task.name}</span>
-              {#if status}
-                <span class="source">Portus-started</span>
-              {/if}
+        {@const action = taskActions[taskKey(project.id, task.id)]}
+        {@const output = recentLines(status)}
+        <li class="task-row" class:has-output={output.length > 0 || isFailed(action)}>
+          <div class="task-main">
+            <StatusBadge status={status ? badgeFor(status.lifecycle) : "stopped"} />
+            <div class="details">
+              <div class="primary">
+                <span class="task-name" title={task.command}>{task.name}</span>
+                {#if status}
+                  <span class="source">Portus-started</span>
+                {/if}
+              </div>
+              <div class="secondary" title={task.command}>
+                <span class="command">{task.command}</span>
+                {#if status}
+                  <span class="sec-dot" aria-hidden="true">·</span>
+                  <span class="lifecycle">{labelFor(status.lifecycle)}</span>
+                {:else if action === "starting"}
+                  <span class="sec-dot" aria-hidden="true">·</span>
+                  <span class="lifecycle">starting</span>
+                {/if}
+              </div>
             </div>
-            <div class="secondary" title={task.command}>
-              <span class="command">{task.command}</span>
-              {#if status}
-                <span class="sec-dot" aria-hidden="true">·</span>
-                <span class="lifecycle">{labelFor(status.lifecycle)}</span>
+            <div class="row-actions">
+              {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                <button
+                  class="act-btn kill"
+                  type="button"
+                  title={`Stop ${task.name}`}
+                  aria-label={`Stop ${task.name}`}
+                  disabled={action === "stopping"}
+                  onclick={() => onStop(status.pid, project.id, task.id)}
+                >
+                  <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
+                </button>
+              {:else}
+                <button
+                  class="act-btn start"
+                  type="button"
+                  title={`Start ${task.name}`}
+                  aria-label={`Start ${task.name}`}
+                  disabled={action === "starting"}
+                  onclick={() => onStart(project.id, task.id)}
+                >
+                  <Play size={13} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
+                </button>
               {/if}
             </div>
           </div>
-          <div class="row-actions">
-            {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
-              <button class="act-btn kill" type="button" title={`Stop ${task.name}`} aria-label={`Stop ${task.name}`} onclick={() => onStop(status.pid)}>
-                <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
-              </button>
-            {:else}
-              <button class="act-btn start" type="button" title={`Start ${task.name}`} aria-label={`Start ${task.name}`} onclick={() => onStart(project.id, task.id)}>
-                <Play size={13} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
-              </button>
-            {/if}
-          </div>
+          {#if isFailed(action)}
+            <p class="task-error">{action.message}</p>
+          {/if}
+          {#if output.length > 0}
+            <pre class="recent-output" aria-label={`Recent output for ${task.name}`}>{output.join("\n")}</pre>
+          {/if}
         </li>
       {/each}
     {/each}
@@ -140,13 +188,16 @@
   }
 
   .task-row {
+    min-height: 50px;
+    padding: 8px 12px;
+    transition: background-color 100ms ease;
+  }
+
+  .task-main {
     display: grid;
     grid-template-columns: 16px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
-    min-height: 50px;
-    padding: 8px 12px;
-    transition: background-color 100ms ease;
   }
 
   .task-row:hover {
@@ -257,6 +308,42 @@
     border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
     color: var(--crashed);
     background: color-mix(in srgb, var(--crashed) 8%, transparent);
+  }
+
+  .act-btn:disabled {
+    opacity: 0.52;
+    cursor: default;
+  }
+
+  .act-btn:disabled:hover {
+    background: transparent;
+  }
+
+  .task-error,
+  .recent-output {
+    margin: 8px 0 0 24px;
+  }
+
+  .task-error {
+    color: var(--crashed);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .recent-output {
+    max-height: 92px;
+    overflow: auto;
+    padding: 7px 8px;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   @media (prefers-reduced-motion: reduce) {
