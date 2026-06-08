@@ -5,6 +5,7 @@ use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -274,6 +275,19 @@ pub fn unsubscribe_docker_logs(container_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Remove our own cancel entry once a stream ends naturally (container stopped,
+/// socket dropped). Guarded by pointer identity so a fresh re-subscription's
+/// entry is never clobbered by an older stream tearing down.
+fn drop_cancel_entry(container_id: &str, cancelled: &Arc<AtomicBool>) {
+    let mut map = docker_log_cancel().lock().unwrap_or_else(|e| e.into_inner());
+    if map
+        .get(container_id)
+        .is_some_and(|existing| Arc::ptr_eq(existing, cancelled))
+    {
+        map.remove(container_id);
+    }
+}
+
 #[cfg(test)]
 async fn stream_logs_from_backend(
     backend: &impl DockerBackend,
@@ -315,18 +329,32 @@ async fn stream_system_docker_logs(
     let mut stream = docker.logs(&container_id, Some(options));
     let mut batcher = LogBatcher::new(200, 128 * 1024);
 
-    while let Some(frame) = stream.next().await {
-        if cancelled.load(AtomicOrdering::Relaxed) {
-            break;
-        }
-        let Ok(frame) = frame.map(log_output_bytes).map_err(map_bollard_error) else {
-            break;
-        };
-        let batch = batcher.push_bytes(&frame);
-        if !batch.lines.is_empty() && channel.send(batch).is_err() {
-            break;
+    // Race the log stream against a short poll of the cancel flag so an idle
+    // container (no new frames) still observes unsubscribe within ~250ms instead
+    // of blocking on `stream.next()` until the next frame ever arrives.
+    loop {
+        tokio::select! {
+            maybe_frame = stream.next() => {
+                let Some(frame) = maybe_frame else { break };
+                if cancelled.load(AtomicOrdering::Relaxed) {
+                    break;
+                }
+                let Ok(frame) = frame.map(log_output_bytes).map_err(map_bollard_error) else {
+                    break;
+                };
+                let batch = batcher.push_bytes(&frame);
+                if !batch.lines.is_empty() && channel.send(batch).is_err() {
+                    break;
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                if cancelled.load(AtomicOrdering::Relaxed) {
+                    break;
+                }
+            }
         }
     }
+    drop_cancel_entry(&container_id, &cancelled);
 }
 
 fn map_bollard_error(error: BollardError) -> DockerBackendError {
