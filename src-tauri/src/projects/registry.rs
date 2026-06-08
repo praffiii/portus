@@ -61,9 +61,7 @@ impl ProjectRegistry {
     /// retention window).
     fn purge_terminal(&mut self, project_id: &str, task_id: &str) {
         self.managed.retain(|m| {
-            !(m.project_id == project_id
-                && m.task_id == task_id
-                && m.terminal_lifecycle.is_some())
+            !(m.project_id == project_id && m.task_id == task_id && m.terminal_lifecycle.is_some())
         });
     }
 
