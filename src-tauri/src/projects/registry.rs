@@ -4,7 +4,7 @@ use serde::Serialize;
 use specta::Type;
 use tauri::ipc::Channel;
 
-use super::lifecycle::{classify, ExitState, Lifecycle};
+use super::lifecycle::{classify, line_looks_like_prompt, ExitState, Lifecycle};
 use super::spawn::{InputStatus, SpawnedProcess};
 use crate::logs::ansi::LogBatch;
 
@@ -237,7 +237,26 @@ fn reconcile_lifecycle(
         return lifecycle;
     }
 
-    let lifecycle = classify(managed.started_at.elapsed(), grace, exit, holds_port);
+    let (idle, last_line_is_prompt) = managed
+        .process
+        .as_ref()
+        .map(|process| {
+            (
+                process.output_idle(),
+                process
+                    .last_non_empty_output()
+                    .is_some_and(|line| line_looks_like_prompt(&line)),
+            )
+        })
+        .unwrap_or((Duration::ZERO, false));
+    let lifecycle = classify(
+        managed.started_at.elapsed(),
+        grace,
+        exit,
+        holds_port,
+        idle,
+        last_line_is_prompt,
+    );
     if matches!(lifecycle, Lifecycle::Exited | Lifecycle::Crashed) {
         managed.terminal_since = Some(Instant::now());
         managed.terminal_lifecycle = Some(lifecycle);

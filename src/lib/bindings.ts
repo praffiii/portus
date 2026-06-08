@@ -56,7 +56,7 @@ export type KillTarget = {
 	expected_port: number | null,
 };
 
-export type Lifecycle = "starting" | "running" | "running_no_port" | "exited" | "crashed";
+export type Lifecycle = "starting" | "running" | "running_no_port" | "waiting" | "exited" | "crashed";
 
 export type LogBatch = {
 	lines: LogLine[],

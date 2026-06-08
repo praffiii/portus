@@ -3,6 +3,7 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
 use serde::Serialize;
@@ -42,6 +43,14 @@ impl RingBuffer {
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
     }
+
+    pub fn last_non_empty(&self) -> Option<String> {
+        self.lines
+            .iter()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .cloned()
+    }
 }
 
 pub struct SpawnedProcess {
@@ -51,6 +60,7 @@ pub struct SpawnedProcess {
     output: Arc<Mutex<RingBuffer>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     stream: Arc<Mutex<LogStream>>,
+    last_output_at: Arc<Mutex<Instant>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +87,7 @@ impl ProcessExitStatus {
 pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedProcess> {
     let output = Arc::new(Mutex::new(RingBuffer::new(RING_CAPACITY)));
     let stream = Arc::new(Mutex::new(LogStream::new()));
+    let last_output_at = Arc::new(Mutex::new(Instant::now()));
     let env_overlay = load_project_env(cwd);
 
     if let Some(notice) = env_overlay.notice {
@@ -112,7 +123,12 @@ pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedP
     let reader = pair.master.try_clone_reader().map_err(to_io_error)?;
     let writer = pair.master.take_writer().map_err(to_io_error)?;
 
-    spawn_reader(reader, output.clone(), stream.clone());
+    spawn_reader(
+        reader,
+        output.clone(),
+        stream.clone(),
+        last_output_at.clone(),
+    );
 
     Ok(SpawnedProcess {
         pid,
@@ -121,6 +137,7 @@ pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedP
         output,
         writer: Arc::new(Mutex::new(writer)),
         stream,
+        last_output_at,
     })
 }
 
@@ -132,6 +149,7 @@ fn spawn_reader<R: Read + Send + 'static>(
     mut reader: R,
     buffer: Arc<Mutex<RingBuffer>>,
     stream: Arc<Mutex<LogStream>>,
+    last_output_at: Arc<Mutex<Instant>>,
 ) {
     thread::spawn(move || {
         let mut pending = Vec::new();
@@ -140,6 +158,7 @@ fn spawn_reader<R: Read + Send + 'static>(
             match reader.read(&mut chunk) {
                 Ok(0) => break,
                 Ok(n) => {
+                    *last_output_at.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
                     pending.extend_from_slice(&chunk[..n]);
                     drain_lines(&mut pending, &buffer);
                     stream
@@ -238,6 +257,20 @@ impl SpawnedProcess {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .is_empty()
+    }
+
+    pub fn output_idle(&self) -> Duration {
+        self.last_output_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .elapsed()
+    }
+
+    pub fn last_non_empty_output(&self) -> Option<String> {
+        self.output
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .last_non_empty()
     }
 }
 
