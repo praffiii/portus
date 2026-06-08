@@ -3,6 +3,7 @@ use specta::Type;
 use thiserror::Error;
 
 pub(crate) mod commands;
+mod env;
 mod kill;
 mod lifecycle;
 mod parse;
@@ -15,7 +16,7 @@ pub use parse::{
     detect_package_manager, parse_compose_services, parse_package_scripts, tasks_from_folder,
 };
 pub use registry::{ManagedStatus, ProjectRegistry};
-pub use spawn::{spawn_task, RingBuffer, SpawnedProcess, RING_CAPACITY};
+pub use spawn::{spawn_task, ProcessExitStatus, RingBuffer, SpawnedProcess, RING_CAPACITY};
 pub use store::{
     canonicalize_folder, upsert, LoadOutcome, ProjectStore, ProjectStoreData, StoreError,
     CURRENT_VERSION,

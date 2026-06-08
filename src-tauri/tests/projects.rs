@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use portus_lib::projects::spawn_task;
 
-fn wait_for_exit(p: &mut portus_lib::projects::SpawnedProcess) -> std::process::ExitStatus {
+fn wait_for_exit(
+    p: &mut portus_lib::projects::SpawnedProcess,
+) -> portus_lib::projects::ProcessExitStatus {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(status) = p.try_status().unwrap() {
@@ -25,6 +27,49 @@ fn spawn_captures_stdout_into_ring_buffer() {
         .recent_output()
         .iter()
         .any(|l| l.contains("hello-from-task")));
+}
+
+#[test]
+fn pty_spawn_makes_stdout_a_tty() {
+    let mut p = spawn_task(
+        "/bin/sh",
+        "python3 -c 'import os, sys; print(os.isatty(sys.stdout.fileno()))'",
+        Path::new("/"),
+    )
+    .unwrap();
+    wait_for_exit(&mut p);
+
+    assert!(p.recent_output().iter().any(|l| l.contains("True")));
+}
+
+#[test]
+fn env_file_values_override_inherited_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".env"), "PORTUS_L3_VALUE=from-file\n").unwrap();
+    std::env::set_var("PORTUS_L3_VALUE", "from-parent");
+
+    let mut p = spawn_task("/bin/sh", "printf '%s\\n' \"$PORTUS_L3_VALUE\"", dir.path()).unwrap();
+    wait_for_exit(&mut p);
+
+    std::env::remove_var("PORTUS_L3_VALUE");
+    assert!(p.recent_output().iter().any(|l| l.contains("from-file")));
+}
+
+#[test]
+fn malformed_env_file_keeps_valid_values_and_reports_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".env"),
+        "PORTUS_L3_VALID=kept\nnot valid dotenv\n",
+    )
+    .unwrap();
+
+    let mut p = spawn_task("/bin/sh", "printf '%s\\n' \"$PORTUS_L3_VALID\"", dir.path()).unwrap();
+    wait_for_exit(&mut p);
+    let output = p.recent_output();
+
+    assert!(output.iter().any(|l| l.contains("kept")));
+    assert!(output.iter().any(|l| l.contains(".env")));
 }
 
 #[test]
@@ -52,7 +97,12 @@ fn spawn_pgid_equals_child_pid() {
 fn kill_on_quit_kills_a_reparented_child() {
     use portus_lib::projects::kill_group;
 
-    let mut p = spawn_task("/bin/sh", "sleep 30 & exit 0", Path::new("/")).unwrap();
+    let mut p = spawn_task(
+        "/bin/sh",
+        "trap '' HUP; sleep 30 & printf 'child alive\\n'; exit 0",
+        Path::new("/"),
+    )
+    .unwrap();
     let pgid = p.pgid();
     let _ = wait_for_exit(&mut p);
 

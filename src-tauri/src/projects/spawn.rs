@@ -1,9 +1,12 @@
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
+use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
+
+use super::env::load_project_env;
 
 pub const RING_CAPACITY: usize = 200;
 
@@ -40,54 +43,113 @@ impl RingBuffer {
 pub struct SpawnedProcess {
     pid: u32,
     pgid: u32,
-    child: Child,
+    child: Box<dyn Child + Send + Sync>,
     output: Arc<Mutex<RingBuffer>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
-/// Spawn `command` through a login shell in `cwd`, in its own process group,
-/// capturing stdout+stderr into a capped ring buffer. No PTY (Layer 3).
-pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> std::io::Result<SpawnedProcess> {
-    let mut cmd = Command::new(shell);
-    cmd.arg("-l")
-        .arg("-c")
-        .arg(command)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessExitStatus {
+    code: Option<i32>,
+}
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
+impl ProcessExitStatus {
+    pub fn code(&self) -> Option<i32> {
+        self.code
     }
+}
 
-    let mut child = cmd.spawn()?;
-    let pid = child.id();
+/// Spawn `command` through a login shell in `cwd`, inside a PTY-backed process
+/// group. The PTY merges stdout and stderr, and its bytes feed the capped
+/// collapsed-glance ring buffer.
+pub fn spawn_task(shell: &str, command: &str, cwd: &Path) -> io::Result<SpawnedProcess> {
     let output = Arc::new(Mutex::new(RingBuffer::new(RING_CAPACITY)));
+    let env_overlay = load_project_env(cwd);
 
-    if let Some(stdout) = child.stdout.take() {
-        spawn_reader(stdout, output.clone());
+    if let Some(notice) = env_overlay.notice {
+        output
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(notice);
     }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_reader(stderr, output.clone());
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(to_io_error)?;
+
+    let mut cmd = CommandBuilder::new(shell);
+    cmd.arg("-l");
+    cmd.arg("-c");
+    cmd.arg(command);
+    cmd.cwd(cwd);
+    for (key, value) in env_overlay.vars {
+        cmd.env(key, value);
     }
+
+    let child = pair.slave.spawn_command(cmd).map_err(to_io_error)?;
+    let pid = child
+        .process_id()
+        .ok_or_else(|| io::Error::other("PTY child did not report a pid"))?;
+    let reader = pair.master.try_clone_reader().map_err(to_io_error)?;
+    let writer = pair.master.take_writer().map_err(to_io_error)?;
+
+    spawn_reader(reader, output.clone());
 
     Ok(SpawnedProcess {
         pid,
         pgid: pid,
         child,
         output,
+        writer: Arc::new(Mutex::new(writer)),
     })
 }
 
-fn spawn_reader<R: std::io::Read + Send + 'static>(reader: R, buffer: Arc<Mutex<RingBuffer>>) {
+fn to_io_error(error: impl std::fmt::Display) -> io::Error {
+    io::Error::other(error.to_string())
+}
+
+fn spawn_reader<R: Read + Send + 'static>(mut reader: R, buffer: Arc<Mutex<RingBuffer>>) {
     thread::spawn(move || {
-        let reader = BufReader::new(reader);
-        for line in reader.lines().map_while(Result::ok) {
-            buffer.lock().unwrap_or_else(|e| e.into_inner()).push(line);
+        let mut pending = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    pending.extend_from_slice(&chunk[..n]);
+                    drain_lines(&mut pending, &buffer);
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        if !pending.is_empty() {
+            push_output_line(&buffer, bytes_to_line(&pending));
         }
     });
+}
+
+fn drain_lines(pending: &mut Vec<u8>, buffer: &Arc<Mutex<RingBuffer>>) {
+    while let Some(pos) = pending.iter().position(|b| *b == b'\n' || *b == b'\r') {
+        let raw: Vec<u8> = pending.drain(..=pos).collect();
+        push_output_line(buffer, bytes_to_line(&raw));
+    }
+}
+
+fn bytes_to_line(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw)
+        .trim_end_matches(['\r', '\n'])
+        .to_string()
+}
+
+fn push_output_line(buffer: &Arc<Mutex<RingBuffer>>, line: String) {
+    buffer.lock().unwrap_or_else(|e| e.into_inner()).push(line);
 }
 
 impl SpawnedProcess {
@@ -100,8 +162,22 @@ impl SpawnedProcess {
     }
 
     /// Non-blocking exit check. `Some(status)` once the shell child has exited.
-    pub fn try_status(&mut self) -> std::io::Result<Option<ExitStatus>> {
-        self.child.try_wait()
+    pub fn try_status(&mut self) -> io::Result<Option<ProcessExitStatus>> {
+        self.child.try_wait().map(|status| {
+            status.map(|status| ProcessExitStatus {
+                code: status
+                    .signal()
+                    .is_none()
+                    .then_some(status.exit_code() as i32),
+            })
+        })
+    }
+
+    pub fn write_input(&self, data: &[u8]) -> io::Result<()> {
+        self.writer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .write_all(data)
     }
 
     pub fn recent_output(&self) -> Vec<String> {
