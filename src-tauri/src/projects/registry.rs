@@ -2,9 +2,11 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use specta::Type;
+use tauri::ipc::Channel;
 
-use super::lifecycle::{classify, ExitState, Lifecycle};
-use super::spawn::SpawnedProcess;
+use super::lifecycle::{classify, line_looks_like_prompt, ExitState, Lifecycle};
+use super::spawn::{InputStatus, SpawnedProcess};
+use crate::logs::ansi::LogBatch;
 
 const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
 
@@ -89,6 +91,60 @@ impl ProjectRegistry {
             .drain(..)
             .map(|m| (m.pgid, m.process))
             .collect()
+    }
+
+    pub fn subscribe_logs(
+        &mut self,
+        project_id: &str,
+        task_id: &str,
+        channel: Channel<LogBatch>,
+    ) -> bool {
+        let Some(managed) = self.managed.iter_mut().find(|managed| {
+            managed.project_id == project_id
+                && managed.task_id == task_id
+                && managed.terminal_lifecycle.is_none()
+        }) else {
+            return false;
+        };
+        let Some(process) = managed.process.as_ref() else {
+            return false;
+        };
+        process.subscribe_logs(channel);
+        true
+    }
+
+    pub fn unsubscribe_logs(&mut self, project_id: &str, task_id: &str) -> bool {
+        let Some(managed) = self.managed.iter_mut().find(|managed| {
+            managed.project_id == project_id
+                && managed.task_id == task_id
+                && managed.terminal_lifecycle.is_none()
+        }) else {
+            return false;
+        };
+        let Some(process) = managed.process.as_ref() else {
+            return false;
+        };
+        process.unsubscribe_logs();
+        true
+    }
+
+    pub fn send_input(
+        &mut self,
+        project_id: &str,
+        task_id: &str,
+        data: &[u8],
+    ) -> std::io::Result<InputStatus> {
+        let Some(managed) = self.managed.iter_mut().find(|managed| {
+            managed.project_id == project_id
+                && managed.task_id == task_id
+                && managed.terminal_lifecycle.is_none()
+        }) else {
+            return Ok(InputStatus::Ignored);
+        };
+        let Some(process) = managed.process.as_mut() else {
+            return Ok(InputStatus::Ignored);
+        };
+        process.send_input_if_running(data)
     }
 
     pub fn reconcile(
@@ -181,7 +237,26 @@ fn reconcile_lifecycle(
         return lifecycle;
     }
 
-    let lifecycle = classify(managed.started_at.elapsed(), grace, exit, holds_port);
+    let (idle, last_line_is_prompt) = managed
+        .process
+        .as_ref()
+        .map(|process| {
+            (
+                process.output_idle(),
+                process
+                    .last_non_empty_output()
+                    .is_some_and(|line| line_looks_like_prompt(&line)),
+            )
+        })
+        .unwrap_or((Duration::ZERO, false));
+    let lifecycle = classify(
+        managed.started_at.elapsed(),
+        grace,
+        exit,
+        holds_port,
+        idle,
+        last_line_is_prompt,
+    );
     if matches!(lifecycle, Lifecycle::Exited | Lifecycle::Crashed) {
         managed.terminal_since = Some(Instant::now());
         managed.terminal_lifecycle = Some(lifecycle);

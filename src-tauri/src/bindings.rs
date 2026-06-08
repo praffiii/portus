@@ -4,6 +4,7 @@ use specta_typescript::Typescript;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use crate::docker::{DockerContainer, DockerSnapshot};
+use crate::logs::ansi::{LogBatch, LogLine};
 use crate::process::KillTarget;
 use crate::state::{self, KillProcessError, Snapshot};
 
@@ -15,12 +16,17 @@ pub fn builder() -> Builder<tauri::Wry> {
             state::set_active,
             state::set_idle,
             state::kill_process_tree,
+            crate::docker::subscribe_docker_logs,
+            crate::docker::unsubscribe_docker_logs,
             crate::projects::commands::load_projects,
             crate::projects::commands::suggest_tasks,
             crate::projects::commands::save_project,
             crate::projects::commands::remove_project,
             crate::projects::commands::start_task,
             crate::projects::commands::stop_task,
+            crate::projects::commands::subscribe_logs,
+            crate::projects::commands::unsubscribe_logs,
+            crate::projects::commands::send_input,
             crate::projects::commands::save_as_candidates
         ])
         .events(collect_events![Snapshot])
@@ -28,6 +34,9 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<DockerSnapshot>()
         .typ::<KillProcessError>()
         .typ::<KillTarget>()
+        .typ::<LogBatch>()
+        .typ::<LogLine>()
+        .typ::<crate::projects::InputStatus>()
         .typ::<crate::projects::Project>()
         .typ::<crate::projects::Task>()
         .typ::<crate::projects::ManagedStatus>()
@@ -61,9 +70,13 @@ mod tests {
         assert!(bindings.contains("setActive"));
         assert!(bindings.contains("setIdle"));
         assert!(bindings.contains("killProcessTree"));
+        assert!(bindings.contains("subscribeDockerLogs"));
         assert!(bindings.contains("loadProjects"));
         assert!(bindings.contains("startTask"));
+        assert!(bindings.contains("subscribeLogs"));
+        assert!(bindings.contains("sendInput"));
         assert!(bindings.contains("snapshot"));
+        assert!(bindings.contains("export type LogBatch"));
         assert!(bindings.contains("export type Snapshot"));
     }
 }

@@ -27,7 +27,8 @@
   );
   const waitingCount = $derived(
     ports.filter((item) => item.status === "waiting").length +
-      containers.filter((item) => item.status === "waiting").length
+      containers.filter((item) => item.status === "waiting").length +
+      managed.filter((item) => item.lifecycle === "waiting").length
   );
 
   $effect(() => {

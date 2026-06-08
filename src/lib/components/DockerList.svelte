@@ -1,8 +1,15 @@
 <script lang="ts">
+  import { ChevronDown } from "@lucide/svelte";
+  import LogPeek from "$lib/components/LogPeek.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import type { DockerRowView } from "$lib/snapshot-adapter";
 
   let { containers }: { containers: DockerRowView[] } = $props();
+  let expanded: Record<string, boolean> = $state({});
+
+  function toggle(id: string) {
+    expanded = { ...expanded, [id]: !expanded[id] };
+  }
 </script>
 
 <section aria-labelledby="docker-heading">
@@ -14,36 +21,39 @@
   <ul>
     {#each containers as container (container.name)}
       <li>
-        <StatusBadge status={container.status} />
-        <div class="details">
-          <div class="primary">
-            <span class="name" title={container.name}>{container.name}</span>
-            {#if container.ports.length > 0}
-              <span class:ports-muted={container.status !== "running"} class="ports">:{container.ports.join(", :")}</span>
+        <div class="docker-main">
+          <StatusBadge status={container.status} />
+          <div class="details">
+            <div class="primary">
+              <span class="name" title={container.name}>{container.name}</span>
+              {#if container.ports.length > 0}
+                <span class:ports-muted={container.status !== "running"} class="ports">:{container.ports.join(", :")}</span>
+              {/if}
+            </div>
+            <div class="secondary" title={`${container.image} · ${container.detail}`}>
+              <span class="image">{container.image}</span>
+              <span class="sec-dot" aria-hidden="true">·</span>
+              <span class="detail">{container.detail}</span>
+            </div>
+          </div>
+          <div class="row-actions">
+            {#if container.status === "running"}
+              <button
+                class="act-btn"
+                class:expanded={expanded[container.id]}
+                type="button"
+                title={`${expanded[container.id] ? "Hide" : "Show"} output for ${container.name}`}
+                aria-label={`${expanded[container.id] ? "Hide" : "Show"} output for ${container.name}`}
+                onclick={() => toggle(container.id)}
+              >
+                <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
+              </button>
             {/if}
           </div>
-          <div class="secondary" title={`${container.image} · ${container.detail}`}>
-            <span class="image">{container.image}</span>
-            <span class="sec-dot" aria-hidden="true">·</span>
-            <span class="detail">{container.detail}</span>
-          </div>
         </div>
-        <!-- Presentational until container start/stop commands are wired. -->
-        <div class="row-actions">
-          {#if container.status === "running"}
-            <button class="act-btn kill" type="button" title="Stop container (unavailable)" aria-label={`Stop ${container.name} (unavailable)`} disabled>
-              <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
-              </svg>
-            </button>
-          {:else}
-            <button class="act-btn start" type="button" title="Start container (unavailable)" aria-label={`Start ${container.name} (unavailable)`} disabled>
-              <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                <path d="M2.5 1.5 L10.5 6 L2.5 10.5 Z" />
-              </svg>
-            </button>
-          {/if}
-        </div>
+        {#if container.status === "running" && expanded[container.id]}
+          <LogPeek containerId={container.id} readonly />
+        {/if}
       </li>
     {/each}
   </ul>
@@ -84,10 +94,6 @@
   }
 
   li {
-    display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
     min-height: 54px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--hairline);
@@ -100,6 +106,13 @@
 
   li:hover {
     background: var(--surface-hi);
+  }
+
+  .docker-main {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
   }
 
   .row-actions {
@@ -132,9 +145,8 @@
       border-color 100ms ease;
   }
 
-  .act-btn.start {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  .act-btn.expanded :global(svg) {
+    transform: rotate(180deg);
   }
 
   .act-btn:disabled {

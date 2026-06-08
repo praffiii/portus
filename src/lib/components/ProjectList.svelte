@@ -3,7 +3,8 @@
 </script>
 
 <script lang="ts">
-  import { Play, Square } from "@lucide/svelte";
+  import { ChevronDown, Play, Square } from "@lucide/svelte";
+  import LogPeek from "$lib/components/LogPeek.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import type { Lifecycle, ManagedStatus, Project } from "$lib/bindings";
   import type { ServiceStatus } from "$lib/snapshot-adapter";
@@ -23,6 +24,7 @@
   } = $props();
 
   const OUTPUT_LIMIT = 8;
+  let expanded: Record<string, boolean> = $state({});
 
   function taskKey(projectId: string, taskId: string): string {
     return `${projectId}:${taskId}`;
@@ -51,6 +53,11 @@
     if (!status || (status.lifecycle !== "exited" && status.lifecycle !== "crashed")) return [];
     return status.recent_output.slice(-OUTPUT_LIMIT);
   }
+
+  function toggle(projectId: string, taskId: string) {
+    const key = taskKey(projectId, taskId);
+    expanded = { ...expanded, [key]: !expanded[key] };
+  }
 </script>
 
 <section aria-labelledby="projects-heading">
@@ -68,6 +75,7 @@
         {@const status = statusFor(project.id, task.id)}
         {@const action = taskActions[taskKey(project.id, task.id)]}
         {@const output = recentLines(status)}
+        {@const key = taskKey(project.id, task.id)}
         <li class="task-row" class:has-output={output.length > 0 || isFailed(action)}>
           <div class="task-main">
             <StatusBadge status={status ? badgeFor(status.lifecycle) : "stopped"} />
@@ -90,6 +98,18 @@
               </div>
             </div>
             <div class="row-actions">
+              {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                <button
+                  class="act-btn"
+                  class:expanded={expanded[key]}
+                  type="button"
+                  title={`${expanded[key] ? "Hide" : "Show"} output for ${task.name}`}
+                  aria-label={`${expanded[key] ? "Hide" : "Show"} output for ${task.name}`}
+                  onclick={() => toggle(project.id, task.id)}
+                >
+                  <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
+                </button>
+              {/if}
               {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
                 <button
                   class="act-btn kill"
@@ -120,6 +140,14 @@
           {/if}
           {#if output.length > 0}
             <pre class="recent-output" aria-label={`Recent output for ${task.name}`}>{output.join("\n")}</pre>
+          {/if}
+          {#if status && expanded[key] && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+            <LogPeek
+              projectId={project.id}
+              taskId={task.id}
+              readonly={false}
+              terminal={false}
+            />
           {/if}
         </li>
       {/each}
@@ -298,6 +326,10 @@
   .act-btn.start {
     color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .act-btn.expanded :global(svg) {
+    transform: rotate(180deg);
   }
 
   .act-btn.start:hover {
