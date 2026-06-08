@@ -2,6 +2,7 @@ pub mod bindings;
 pub mod docker;
 pub mod ports;
 pub mod process;
+pub mod projects;
 pub mod state;
 pub mod ui;
 
