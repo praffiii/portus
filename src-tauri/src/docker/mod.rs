@@ -279,7 +279,9 @@ pub fn unsubscribe_docker_logs(container_id: String) -> Result<(), String> {
 /// socket dropped). Guarded by pointer identity so a fresh re-subscription's
 /// entry is never clobbered by an older stream tearing down.
 fn drop_cancel_entry(container_id: &str, cancelled: &Arc<AtomicBool>) {
-    let mut map = docker_log_cancel().lock().unwrap_or_else(|e| e.into_inner());
+    let mut map = docker_log_cancel()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if map
         .get(container_id)
         .is_some_and(|existing| Arc::ptr_eq(existing, cancelled))
