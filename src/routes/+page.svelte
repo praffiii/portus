@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isTauri } from "@tauri-apps/api/core";
-  import { Anchor, Plus, Settings } from "@lucide/svelte";
+  import { Anchor, FolderOpen, Play, Plus, Settings } from "@lucide/svelte";
   import { onMount } from "svelte";
 
   import { commands, events, type Project, type Snapshot } from "$lib/bindings";
@@ -18,9 +18,16 @@
   let projects: Project[] = $state([]);
   let portActionStates: Record<string, PortActionState> = $state({});
   let taskActions: Record<string, TaskActionState> = $state({});
+  let quickRunComponent: QuickRun | undefined = $state();
   const managed = $derived(snapshot.managed);
   const ports = $derived(snapshotToPortRows(snapshot));
   const containers = $derived(containersToDockerRows(snapshot.docker.data.containers));
+  const isEmpty = $derived(
+    snapshot.ports.data.length === 0 &&
+      snapshot.docker.data.containers.length === 0 &&
+      projects.length === 0 &&
+      snapshot.managed.length === 0
+  );
   const runningCount = $derived(
     ports.filter((item) => item.status === "running").length +
       containers.filter((item) => item.status === "running").length
@@ -213,6 +220,10 @@
     return undefined;
   }
 
+  function focusQuickRun() {
+    quickRunComponent?.focusCommand();
+  }
+
   function taskKey(projectId: string, taskId: string): string {
     return `${projectId}:${taskId}`;
   }
@@ -262,16 +273,40 @@
   </header>
 
   <div class="scroll-body">
+    {#if isEmpty}
+      <section class="empty-state" aria-labelledby="empty-heading">
+        <div class="empty-icon" aria-hidden="true">
+          <Anchor size={18} strokeWidth={1.75} />
+        </div>
+        <div class="empty-copy">
+          <h2 id="empty-heading">Nothing running</h2>
+          <p>Open a folder or run a one-off command.</p>
+        </div>
+        <div class="empty-actions">
+          <button class="empty-action primary" type="button" onclick={addProjectFromFolder}>
+            <FolderOpen size={13} strokeWidth={1.9} aria-hidden="true" />
+            <span>Open folder</span>
+          </button>
+          <button class="empty-action" type="button" onclick={focusQuickRun}>
+            <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
+            <span>Quick-run</span>
+          </button>
+        </div>
+      </section>
+    {/if}
     <QuickRun
+      bind:this={quickRunComponent}
       {projects}
       {managed}
       onRun={startQuickRun}
       onStop={stopQuickRun}
       onSave={saveQuickRun}
     />
-    <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
-    <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
-    <DockerList {containers} />
+    {#if !isEmpty}
+      <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
+      <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
+      <DockerList {containers} />
+    {/if}
   </div>
 
   <footer class="footer">
@@ -480,6 +515,87 @@
     background: rgb(120 120 130 / 35%);
   }
 
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 28px 24px 24px;
+    border-bottom: 1px solid var(--hairline);
+    text-align: center;
+  }
+
+  .empty-icon {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+  }
+
+  .empty-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .empty-copy h2,
+  .empty-copy p {
+    margin: 0;
+  }
+
+  .empty-copy h2 {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .empty-copy p {
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .empty-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .empty-action {
+    display: flex;
+    height: 28px;
+    align-items: center;
+    gap: 5px;
+    padding: 0 9px;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    color: var(--text-muted);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 100ms ease,
+      background 100ms ease,
+      border-color 100ms ease;
+  }
+
+  .empty-action.primary,
+  .empty-action:hover {
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--accent);
+  }
+
+  .empty-action:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+
   .icon-button:hover:not(:disabled) {
     opacity: 1;
     background: rgb(127 127 127 / 12%);
@@ -550,7 +666,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .icon-button {
+    .icon-button,
+    .empty-action {
       transition: none;
     }
   }

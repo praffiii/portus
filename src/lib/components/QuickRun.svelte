@@ -32,6 +32,7 @@
   let expanded: Record<string, boolean> = $state({});
   let rowActions: Record<string, "stopping" | "saving" | { kind: "failed"; message: string }> =
     $state({});
+  let commandInput: HTMLInputElement | undefined = $state();
 
   const quickRuns = $derived(managed.filter((item) => item.origin.kind === "quick_run"));
   const savedFolders = $derived(projects.map((project) => project.folder));
@@ -42,6 +43,11 @@
 
   function unique(values: string[]): string[] {
     return Array.from(new Set(values));
+  }
+
+  export function focusCommand() {
+    commandInput?.focus();
+    commandInput?.select();
   }
 
   function badgeFor(lifecycle: Lifecycle): ServiceStatus {
@@ -153,6 +159,7 @@
     }}
   >
     <input
+      bind:this={commandInput}
       bind:value={command}
       class="command-input"
       type="text"
