@@ -11,7 +11,7 @@ use crate::logs::ansi::LogBatch;
 use crate::process::{ProcessProbe, SystemProcessProbe};
 
 use super::parse::tasks_from_folder;
-use super::registry::ProjectRegistry;
+use super::registry::{LaunchSpec, ProjectRegistry};
 use super::spawn::spawn_task;
 use super::store::{upsert, ProjectStore, ProjectStoreData};
 use super::{InputStatus, Project, Task};
@@ -187,18 +187,37 @@ pub fn start_task(
     };
 
     let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
-    if registry.has_active_task(&project_id, &task_id) {
+    if registry
+        .active_project_run_id(&project_id, &task_id)
+        .is_some()
+    {
         return Err("task is already running".to_string());
     }
     let process =
-        spawn_task(&login_shell(), &command, &PathBuf::from(folder)).map_err(|e| e.to_string())?;
-    registry.insert(project_id, task_id, process);
+        spawn_task(&login_shell(), &command, &PathBuf::from(&folder)).map_err(|e| e.to_string())?;
+    registry.insert(
+        project_id,
+        task_id,
+        LaunchSpec {
+            command,
+            cwd: folder,
+        },
+        process,
+    );
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn stop_task(pgid: u32) -> Result<(), String> {
+pub fn stop_task(
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    run_id: String,
+) -> Result<(), String> {
+    let pgid = registry
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .pgid_for_run(&run_id)
+        .ok_or("task is not running")?;
     std::thread::spawn(move || {
         #[cfg(unix)]
         {
@@ -218,12 +237,11 @@ pub fn stop_task(pgid: u32) -> Result<(), String> {
 #[specta::specta]
 pub fn subscribe_logs(
     registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
-    project_id: String,
-    task_id: String,
+    run_id: String,
     channel: Channel<LogBatch>,
 ) -> Result<(), String> {
     let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
-    if registry.subscribe_logs(&project_id, &task_id, channel) {
+    if registry.subscribe_logs(&run_id, channel) {
         Ok(())
     } else {
         Err("task is not running".to_string())
@@ -234,11 +252,10 @@ pub fn subscribe_logs(
 #[specta::specta]
 pub fn unsubscribe_logs(
     registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
-    project_id: String,
-    task_id: String,
+    run_id: String,
 ) -> Result<(), String> {
     let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
-    registry.unsubscribe_logs(&project_id, &task_id);
+    registry.unsubscribe_logs(&run_id);
     Ok(())
 }
 
@@ -246,13 +263,12 @@ pub fn unsubscribe_logs(
 #[specta::specta]
 pub fn send_input(
     registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
-    project_id: String,
-    task_id: String,
+    run_id: String,
     data: String,
 ) -> Result<InputStatus, String> {
     let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
     registry
-        .send_input(&project_id, &task_id, data.as_bytes())
+        .send_input(&run_id, data.as_bytes())
         .map_err(|e| e.to_string())
 }
 

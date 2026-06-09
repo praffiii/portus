@@ -7,12 +7,14 @@
   const MAX_LINES = 200;
 
   let {
+    runId,
     projectId,
     taskId,
     containerId,
     readonly = true,
     terminal = false
   }: {
+    runId?: string;
     projectId?: string;
     taskId?: string;
     containerId?: string;
@@ -38,15 +40,15 @@
     channel.onmessage = append;
     if (containerId) {
       void commands.subscribeDockerLogs(containerId, channel);
-    } else if (projectId && taskId) {
-      void commands.subscribeLogs(projectId, taskId, channel);
+    } else if (runId) {
+      void commands.subscribeLogs(runId, channel);
     }
 
     return () => {
       if (containerId) {
         void commands.unsubscribeDockerLogs(containerId);
-      } else if (projectId && taskId) {
-        void commands.unsubscribeLogs(projectId, taskId);
+      } else if (runId) {
+        void commands.unsubscribeLogs(runId);
       }
     };
   });
@@ -55,16 +57,16 @@
     if (!isTauri()) return;
     if (containerId) {
       void commands.unsubscribeDockerLogs(containerId);
-    } else if (projectId && taskId) {
-      void commands.unsubscribeLogs(projectId, taskId);
+    } else if (runId) {
+      void commands.unsubscribeLogs(runId);
     }
   });
 
   async function sendInput() {
-    if (!isTauri() || !projectId || !taskId || input.length === 0 || terminal) return;
+    if (!isTauri() || !runId || input.length === 0 || terminal) return;
     const data = `${input}\n`;
     input = "";
-    await commands.sendInput(projectId, taskId, data);
+    await commands.sendInput(runId, data);
   }
 </script>
 

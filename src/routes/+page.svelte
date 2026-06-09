@@ -37,7 +37,11 @@
 
     for (const [key, action] of Object.entries(taskActions)) {
       if (typeof action === "object") continue;
-      const status = managed.find((item) => taskKey(item.project_id, item.task_id) === key);
+      const status = managed.find(
+        (item) =>
+          item.origin.kind === "project" &&
+          taskKey(item.origin.project_id, item.origin.task_id) === key
+      );
       if (
         (action === "starting" && status) ||
         (action === "stopping" &&
@@ -174,13 +178,13 @@
     }
   }
 
-  async function stopTask(pid: number, projectId: string, taskId: string) {
+  async function stopTask(runId: string, projectId: string, taskId: string) {
     if (!isTauri()) return;
     const key = taskKey(projectId, taskId);
     if (taskActions[key] === "stopping") return;
 
     taskActions = { ...taskActions, [key]: "stopping" };
-    const result = await commands.stopTask(pid);
+    const result = await commands.stopTask(runId);
     if (result.status === "error") {
       taskActions = { ...taskActions, [key]: { kind: "failed", message: result.error } };
     }
