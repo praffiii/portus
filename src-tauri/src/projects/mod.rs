@@ -20,8 +20,8 @@ pub use spawn::{
     spawn_task, InputStatus, ProcessExitStatus, RingBuffer, SpawnedProcess, RING_CAPACITY,
 };
 pub use store::{
-    canonicalize_folder, upsert, LoadOutcome, ProjectStore, ProjectStoreData, StoreError,
-    CURRENT_VERSION,
+    append_task_to_folder, canonicalize_folder, upsert, LoadOutcome, ProjectStore,
+    ProjectStoreData, StoreError, CURRENT_VERSION,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type)]
@@ -45,8 +45,8 @@ pub enum ProjectError {
     Store(#[from] StoreError),
 }
 pub use commands::{
-    candidates_from_chain_for_test, load_projects, remove_project, save_project, send_input,
-    start_task, stop_task, subscribe_logs, suggest_tasks, unsubscribe_logs, ProjectsState,
-    SaveAsCandidate,
+    candidates_from_chain_for_test, load_projects, remove_project, save_project,
+    save_quick_run_as_project, send_input, start_task, stop_task, subscribe_logs, suggest_tasks,
+    unsubscribe_logs, ProjectsState, SaveAsCandidate,
 };
 pub use kill::{kill_all_managed, kill_group, QUIT_GRACE};

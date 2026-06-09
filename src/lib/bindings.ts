@@ -16,6 +16,7 @@ export const commands = {
 	removeProject: (id: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { id })),
 	startTask: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("start_task", { projectId, taskId })),
 	startQuickRun: (command: string, cwd: string) => typedError<string, string>(__TAURI_INVOKE("start_quick_run", { command, cwd })),
+	saveQuickRunAsProject: (runId: string) => typedError<Project[], string>(__TAURI_INVOKE("save_quick_run_as_project", { runId })),
 	stopTask: (runId: string) => typedError<null, string>(__TAURI_INVOKE("stop_task", { runId })),
 	subscribeLogs: (runId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_logs", { runId, channel })),
 	unsubscribeLogs: (runId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_logs", { runId })),

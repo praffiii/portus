@@ -187,6 +187,13 @@ impl ProjectRegistry {
         self.active_run(run_id).map(|managed| managed.pgid)
     }
 
+    pub fn launch_spec_for_run(&self, run_id: &str) -> Option<LaunchSpec> {
+        self.managed
+            .iter()
+            .find(|managed| managed.run_id == run_id)
+            .map(|managed| managed.launch_spec.clone())
+    }
+
     pub fn reconcile(
         &mut self,
         mut exit_of: impl FnMut(u32) -> ExitState,
@@ -282,7 +289,11 @@ impl ProjectRegistry {
     }
 
     #[cfg(test)]
-    fn insert_quick_run_for_test(&mut self, launch_spec: LaunchSpec, pgid: u32) -> String {
+    pub(crate) fn insert_quick_run_for_test(
+        &mut self,
+        launch_spec: LaunchSpec,
+        pgid: u32,
+    ) -> String {
         let run_id = new_run_id();
         self.managed.push(ManagedProcess {
             run_id: run_id.clone(),
@@ -564,6 +575,20 @@ mod tests {
             .filter(|status| matches!(status.origin, ManagedOrigin::QuickRun))
             .collect();
         assert_eq!(quick_runs.len(), 2);
+    }
+
+    #[test]
+    fn launch_spec_for_run_finds_terminal_quick_runs() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let launch_spec = LaunchSpec {
+            command: "pnpm dev".to_string(),
+            cwd: "/tmp/portus-a".to_string(),
+        };
+        let run_id = registry.insert_quick_run_for_test(launch_spec.clone(), 4242);
+
+        registry.reconcile(|_pid| ExitState::Exited(0), |_pid| None, &[]);
+
+        assert_eq!(registry.launch_spec_for_run(&run_id), Some(launch_spec));
     }
 
     #[test]

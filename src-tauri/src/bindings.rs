@@ -24,6 +24,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             crate::projects::commands::remove_project,
             crate::projects::commands::start_task,
             crate::projects::commands::start_quick_run,
+            crate::projects::commands::save_quick_run_as_project,
             crate::projects::commands::stop_task,
             crate::projects::commands::subscribe_logs,
             crate::projects::commands::unsubscribe_logs,
@@ -76,6 +77,7 @@ mod tests {
         assert!(bindings.contains("loadProjects"));
         assert!(bindings.contains("startTask"));
         assert!(bindings.contains("startQuickRun"));
+        assert!(bindings.contains("saveQuickRunAsProject"));
         assert!(bindings.contains("subscribeLogs"));
         assert!(bindings.contains("sendInput"));
         assert!(bindings.contains("snapshot"));

@@ -5,8 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use thiserror::Error;
+use uuid::Uuid;
 
-use super::Project;
+use super::{Project, Task};
 
 pub const CURRENT_VERSION: u32 = 1;
 
@@ -124,10 +125,39 @@ pub fn upsert(data: &mut ProjectStoreData, mut project: Project) {
     }
 }
 
+pub fn append_task_to_folder(data: &mut ProjectStoreData, folder: &str, command: String) {
+    let canonical = canonicalize_folder(folder);
+    let task = Task {
+        id: Uuid::new_v4().to_string(),
+        name: command.clone(),
+        command,
+    };
+
+    if let Some(existing) = data.projects.iter_mut().find(|p| p.id == canonical) {
+        existing.tasks.push(task);
+        return;
+    }
+
+    data.projects.push(Project {
+        id: canonical.clone(),
+        name: project_name_from_folder(&canonical),
+        folder: canonical,
+        tasks: vec![task],
+    });
+}
+
+fn project_name_from_folder(folder: &str) -> String {
+    PathBuf::from(folder)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(folder)
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::{Project, Task};
 
     fn sample() -> ProjectStoreData {
         ProjectStoreData {
@@ -220,5 +250,58 @@ mod tests {
         upsert(&mut data, p);
 
         assert_eq!(data.projects.len(), 1);
+    }
+
+    #[test]
+    fn append_task_to_folder_preserves_existing_tasks() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("web");
+        std::fs::create_dir(&folder).unwrap();
+        let canonical = canonicalize_folder(&folder.to_string_lossy());
+        let mut data = ProjectStoreData {
+            version: 1,
+            projects: vec![Project {
+                id: canonical.clone(),
+                name: "custom name".to_string(),
+                folder: canonical.clone(),
+                tasks: vec![Task {
+                    id: "dev".to_string(),
+                    name: "dev".to_string(),
+                    command: "pnpm dev".to_string(),
+                }],
+            }],
+        };
+
+        append_task_to_folder(
+            &mut data,
+            &folder.to_string_lossy(),
+            "pnpm test".to_string(),
+        );
+
+        assert_eq!(data.projects.len(), 1);
+        assert_eq!(data.projects[0].id, canonical);
+        assert_eq!(data.projects[0].name, "custom name");
+        assert_eq!(data.projects[0].tasks.len(), 2);
+        assert_eq!(data.projects[0].tasks[0].command, "pnpm dev");
+        assert_eq!(data.projects[0].tasks[1].command, "pnpm test");
+    }
+
+    #[test]
+    fn append_task_to_folder_creates_project_for_new_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("api");
+        std::fs::create_dir(&folder).unwrap();
+        let mut data = ProjectStoreData::default();
+
+        append_task_to_folder(
+            &mut data,
+            &folder.to_string_lossy(),
+            "cargo run".to_string(),
+        );
+
+        assert_eq!(data.projects.len(), 1);
+        assert_eq!(data.projects[0].name, "api");
+        assert_eq!(data.projects[0].tasks.len(), 1);
+        assert_eq!(data.projects[0].tasks[0].command, "cargo run");
     }
 }
