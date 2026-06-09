@@ -15,8 +15,6 @@ const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
 pub struct ManagedStatus {
     pub run_id: String,
     pub origin: ManagedOrigin,
-    pub project_id: String,
-    pub task_id: String,
     pub pid: u32,
     pub lifecycle: Lifecycle,
     pub recent_output: Vec<String>,
@@ -168,18 +166,6 @@ impl ProjectRegistry {
 
     pub fn pgid_for_run(&self, run_id: &str) -> Option<u32> {
         self.active_run(run_id).map(|managed| managed.pgid)
-    }
-
-    pub fn status_for_run(&self, run_id: &str) -> Option<ManagedStatus> {
-        self.managed
-            .iter()
-            .find(|managed| managed.run_id == run_id)
-            .map(|managed| {
-                status_for(
-                    managed,
-                    managed.terminal_lifecycle.unwrap_or(Lifecycle::Starting),
-                )
-            })
     }
 
     pub fn reconcile(
@@ -340,19 +326,9 @@ fn reconcile_lifecycle(
 }
 
 fn status_for(managed: &ManagedProcess, lifecycle: Lifecycle) -> ManagedStatus {
-    let (project_id, task_id) = match &managed.origin {
-        ManagedOrigin::Project {
-            project_id,
-            task_id,
-        } => (project_id.clone(), task_id.clone()),
-        ManagedOrigin::QuickRun { .. } => (String::new(), String::new()),
-    };
-
     ManagedStatus {
         run_id: managed.run_id.clone(),
         origin: managed.origin.clone(),
-        project_id,
-        task_id,
         pid: managed.pgid,
         lifecycle,
         recent_output: managed
@@ -437,7 +413,15 @@ mod tests {
 
         let dev: Vec<_> = statuses
             .iter()
-            .filter(|s| s.project_id == "p1" && s.task_id == "dev")
+            .filter(|s| {
+                matches!(
+                    &s.origin,
+                    ManagedOrigin::Project {
+                        project_id,
+                        task_id,
+                    } if project_id == "p1" && task_id == "dev"
+                )
+            })
             .collect();
         assert_eq!(dev.len(), 1, "restart must not leave a duplicate row");
         assert_eq!(dev[0].pid, 5555);
@@ -452,14 +436,33 @@ mod tests {
 
         assert_ne!(first_run_id, second_run_id);
 
-        let first = registry.status_for_run(&first_run_id).unwrap();
-        let second = registry.status_for_run(&second_run_id).unwrap();
+        let statuses = registry.reconcile(|_pid| ExitState::Alive, |_pid| None, &[]);
+        let first = statuses
+            .iter()
+            .find(|status| status.run_id == first_run_id)
+            .unwrap();
+        let second = statuses
+            .iter()
+            .find(|status| status.run_id == second_run_id)
+            .unwrap();
 
         assert_eq!(first.pid, 4242);
         assert_eq!(second.pid, 5555);
-        assert_eq!(first.project_id, "p1");
-        assert_eq!(second.project_id, "p1");
-        assert_eq!(first.task_id, "dev");
-        assert_eq!(second.task_id, "dev");
+        assert_eq!(registry.pgid_for_run(&first_run_id), Some(4242));
+        assert_eq!(registry.pgid_for_run(&second_run_id), Some(5555));
+        assert_eq!(
+            first.origin,
+            ManagedOrigin::Project {
+                project_id: "p1".to_string(),
+                task_id: "dev".to_string()
+            }
+        );
+        assert_eq!(
+            second.origin,
+            ManagedOrigin::Project {
+                project_id: "p1".to_string(),
+                task_id: "dev".to_string()
+            }
+        );
     }
 }

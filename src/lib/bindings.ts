@@ -73,8 +73,6 @@ export type ManagedOrigin = { kind: "project"; project_id: string; task_id: stri
 export type ManagedStatus = {
 	run_id: string,
 	origin: ManagedOrigin,
-	project_id: string,
-	task_id: string,
 	pid: number,
 	lifecycle: Lifecycle,
 	recent_output: string[],
