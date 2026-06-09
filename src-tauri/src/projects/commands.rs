@@ -42,6 +42,58 @@ fn login_shell() -> String {
         .unwrap_or_else(|| "/bin/zsh".to_string())
 }
 
+#[derive(Debug, PartialEq)]
+struct ValidQuickRunRequest {
+    command: String,
+    cwd: PathBuf,
+}
+
+fn validate_quick_run_request(
+    command: &str,
+    cwd: &str,
+    home_dir: impl FnOnce() -> Option<PathBuf>,
+    is_readable_dir: impl FnOnce(&Path) -> bool,
+) -> Result<ValidQuickRunRequest, String> {
+    let command = command.trim().to_string();
+    if command.is_empty() {
+        return Err("quick-run command cannot be blank".to_string());
+    }
+
+    let cwd = expand_tilde(cwd, home_dir)?;
+    if !cwd.exists() {
+        return Err(format!("folder does not exist: {}", cwd.display()));
+    }
+    if !cwd.is_dir() {
+        return Err(format!("folder is not a directory: {}", cwd.display()));
+    }
+    if !is_readable_dir(&cwd) {
+        return Err(format!("folder is not readable: {}", cwd.display()));
+    }
+
+    Ok(ValidQuickRunRequest { command, cwd })
+}
+
+fn expand_tilde(cwd: &str, home_dir: impl FnOnce() -> Option<PathBuf>) -> Result<PathBuf, String> {
+    if cwd == "~" {
+        return home_dir().ok_or("could not resolve home directory".to_string());
+    }
+    if let Some(rest) = cwd.strip_prefix("~/") {
+        let home = home_dir().ok_or("could not resolve home directory".to_string())?;
+        return Ok(home.join(rest));
+    }
+    Ok(PathBuf::from(cwd))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
+fn is_readable_dir(path: &Path) -> bool {
+    std::fs::read_dir(path).is_ok()
+}
+
 #[cfg(unix)]
 fn login_shell_from_passwd() -> Option<String> {
     unsafe {
@@ -209,6 +261,28 @@ pub fn start_task(
 
 #[tauri::command]
 #[specta::specta]
+pub fn start_quick_run(
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    command: String,
+    cwd: String,
+) -> Result<String, String> {
+    let request = validate_quick_run_request(&command, &cwd, home_dir, is_readable_dir)?;
+
+    let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    let process =
+        spawn_task(&login_shell(), &request.command, &request.cwd).map_err(|e| e.to_string())?;
+    let run_id = registry.insert_quick_run(
+        LaunchSpec {
+            command: request.command,
+            cwd: request.cwd.to_string_lossy().to_string(),
+        },
+        process,
+    );
+    Ok(run_id)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn stop_task(
     registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
     run_id: String,
@@ -347,5 +421,87 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].pid, 100);
         assert_eq!(candidates[1].pid, 200);
+    }
+
+    #[test]
+    fn quick_run_folder_expands_tilde_and_validates_directory() {
+        let home = tempfile::tempdir().expect("home dir");
+        let project = home.path().join("repo");
+        std::fs::create_dir(&project).expect("create project dir");
+
+        let resolved = validate_quick_run_request(
+            "pnpm dev",
+            "~/repo",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect("valid request");
+
+        assert_eq!(resolved.command, "pnpm dev");
+        assert_eq!(resolved.cwd, project);
+    }
+
+    #[test]
+    fn quick_run_folder_rejects_missing_paths() {
+        let home = tempfile::tempdir().expect("home dir");
+
+        let error = validate_quick_run_request(
+            "pnpm dev",
+            "~/missing",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect_err("missing path should be rejected");
+
+        assert!(error.contains("does not exist"));
+    }
+
+    #[test]
+    fn quick_run_folder_rejects_non_directories() {
+        let home = tempfile::tempdir().expect("home dir");
+        let file = home.path().join("package.json");
+        std::fs::write(&file, "{}").expect("write file");
+
+        let error = validate_quick_run_request(
+            "pnpm dev",
+            "~/package.json",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect_err("file path should be rejected");
+
+        assert!(error.contains("not a directory"));
+    }
+
+    #[test]
+    fn quick_run_folder_rejects_unreadable_directories() {
+        let home = tempfile::tempdir().expect("home dir");
+        let project = home.path().join("repo");
+        std::fs::create_dir(&project).expect("create project dir");
+
+        let error = validate_quick_run_request(
+            "pnpm dev",
+            "~/repo",
+            || Some(home.path().to_path_buf()),
+            |_| false,
+        )
+        .expect_err("unreadable dir should be rejected");
+
+        assert!(error.contains("not readable"));
+    }
+
+    #[test]
+    fn quick_run_rejects_blank_commands() {
+        let home = tempfile::tempdir().expect("home dir");
+
+        let error = validate_quick_run_request(
+            "   \n\t",
+            "~",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect_err("blank command should be rejected");
+
+        assert!(error.contains("command cannot be blank"));
     }
 }
