@@ -15,10 +15,10 @@ export const commands = {
 	saveProject: (project: Project) => typedError<Project[], string>(__TAURI_INVOKE("save_project", { project })),
 	removeProject: (id: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { id })),
 	startTask: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("start_task", { projectId, taskId })),
-	stopTask: (pgid: number) => typedError<null, string>(__TAURI_INVOKE("stop_task", { pgid })),
-	subscribeLogs: (projectId: string, taskId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_logs", { projectId, taskId, channel })),
-	unsubscribeLogs: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_logs", { projectId, taskId })),
-	sendInput: (projectId: string, taskId: string, data: string) => typedError<InputStatus, string>(__TAURI_INVOKE("send_input", { projectId, taskId, data })),
+	stopTask: (runId: string) => typedError<null, string>(__TAURI_INVOKE("stop_task", { runId })),
+	subscribeLogs: (runId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_logs", { runId, channel })),
+	unsubscribeLogs: (runId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_logs", { runId })),
+	sendInput: (runId: string, data: string) => typedError<InputStatus, string>(__TAURI_INVOKE("send_input", { runId, data })),
 	saveAsCandidates: (listenerPid: number) => typedError<SaveAsCandidate[], string>(__TAURI_INVOKE("save_as_candidates", { listenerPid })),
 };
 
@@ -68,7 +68,11 @@ export type LogLine = {
 	html: string,
 };
 
+export type ManagedOrigin = { kind: "project"; project_id: string; task_id: string } | { kind: "quick_run"; run_id: string; cwd: string; command: string };
+
 export type ManagedStatus = {
+	run_id: string,
+	origin: ManagedOrigin,
 	project_id: string,
 	task_id: string,
 	pid: number,

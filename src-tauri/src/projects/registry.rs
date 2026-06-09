@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use specta::Type;
 use tauri::ipc::Channel;
+use uuid::Uuid;
 
 use super::lifecycle::{classify, line_looks_like_prompt, ExitState, Lifecycle};
 use super::spawn::{InputStatus, SpawnedProcess};
@@ -12,6 +13,8 @@ const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Type)]
 pub struct ManagedStatus {
+    pub run_id: String,
+    pub origin: ManagedOrigin,
     pub project_id: String,
     pub task_id: String,
     pub pid: u32,
@@ -19,9 +22,23 @@ pub struct ManagedStatus {
     pub recent_output: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ManagedOrigin {
+    Project {
+        project_id: String,
+        task_id: String,
+    },
+    QuickRun {
+        run_id: String,
+        cwd: String,
+        command: String,
+    },
+}
+
 struct ManagedProcess {
-    project_id: String,
-    task_id: String,
+    run_id: String,
+    origin: ManagedOrigin,
     pgid: u32,
     started_at: Instant,
     process: Option<SpawnedProcess>,
@@ -43,11 +60,20 @@ impl ProjectRegistry {
         }
     }
 
-    pub fn insert(&mut self, project_id: String, task_id: String, process: SpawnedProcess) {
+    pub fn insert(
+        &mut self,
+        project_id: String,
+        task_id: String,
+        process: SpawnedProcess,
+    ) -> String {
         self.purge_terminal(&project_id, &task_id);
+        let run_id = new_run_id();
         self.managed.push(ManagedProcess {
-            project_id,
-            task_id,
+            run_id: run_id.clone(),
+            origin: ManagedOrigin::Project {
+                project_id,
+                task_id,
+            },
             pgid: process.pgid(),
             started_at: Instant::now(),
             process: Some(process),
@@ -55,6 +81,7 @@ impl ProjectRegistry {
             terminal_lifecycle: None,
             terminal_output: Vec::new(),
         });
+        run_id
     }
 
     /// Drop any retained terminal entry for this task so a restart isn't
@@ -63,19 +90,33 @@ impl ProjectRegistry {
     /// retention window).
     fn purge_terminal(&mut self, project_id: &str, task_id: &str) {
         self.managed.retain(|m| {
-            !(m.project_id == project_id && m.task_id == task_id && m.terminal_lifecycle.is_some())
+            !(matches!(
+                &m.origin,
+                ManagedOrigin::Project {
+                    project_id: managed_project_id,
+                    task_id: managed_task_id,
+                } if managed_project_id == project_id && managed_task_id == task_id
+            ) && m.terminal_lifecycle.is_some())
         });
     }
 
-    pub fn has_active_task(&self, project_id: &str, task_id: &str) -> bool {
-        self.managed.iter().any(|m| {
-            m.project_id == project_id
-                && m.task_id == task_id
-                && !matches!(
-                    m.terminal_lifecycle,
-                    Some(Lifecycle::Exited | Lifecycle::Crashed)
-                )
-        })
+    pub fn has_active_run(&self, run_id: &str) -> bool {
+        self.active_run(run_id).is_some()
+    }
+
+    pub fn active_project_run_id(&self, project_id: &str, task_id: &str) -> Option<String> {
+        self.managed
+            .iter()
+            .find(|m| {
+                matches!(
+                    &m.origin,
+                    ManagedOrigin::Project {
+                        project_id: managed_project_id,
+                        task_id: managed_task_id,
+                    } if managed_project_id == project_id && managed_task_id == task_id
+                ) && !is_terminal(m)
+            })
+            .map(|m| m.run_id.clone())
     }
 
     pub fn pgids(&self) -> Vec<u32> {
@@ -93,17 +134,8 @@ impl ProjectRegistry {
             .collect()
     }
 
-    pub fn subscribe_logs(
-        &mut self,
-        project_id: &str,
-        task_id: &str,
-        channel: Channel<LogBatch>,
-    ) -> bool {
-        let Some(managed) = self.managed.iter_mut().find(|managed| {
-            managed.project_id == project_id
-                && managed.task_id == task_id
-                && managed.terminal_lifecycle.is_none()
-        }) else {
+    pub fn subscribe_logs(&mut self, run_id: &str, channel: Channel<LogBatch>) -> bool {
+        let Some(managed) = self.active_run_mut(run_id) else {
             return false;
         };
         let Some(process) = managed.process.as_ref() else {
@@ -113,12 +145,8 @@ impl ProjectRegistry {
         true
     }
 
-    pub fn unsubscribe_logs(&mut self, project_id: &str, task_id: &str) -> bool {
-        let Some(managed) = self.managed.iter_mut().find(|managed| {
-            managed.project_id == project_id
-                && managed.task_id == task_id
-                && managed.terminal_lifecycle.is_none()
-        }) else {
+    pub fn unsubscribe_logs(&mut self, run_id: &str) -> bool {
+        let Some(managed) = self.active_run_mut(run_id) else {
             return false;
         };
         let Some(process) = managed.process.as_ref() else {
@@ -128,23 +156,30 @@ impl ProjectRegistry {
         true
     }
 
-    pub fn send_input(
-        &mut self,
-        project_id: &str,
-        task_id: &str,
-        data: &[u8],
-    ) -> std::io::Result<InputStatus> {
-        let Some(managed) = self.managed.iter_mut().find(|managed| {
-            managed.project_id == project_id
-                && managed.task_id == task_id
-                && managed.terminal_lifecycle.is_none()
-        }) else {
+    pub fn send_input(&mut self, run_id: &str, data: &[u8]) -> std::io::Result<InputStatus> {
+        let Some(managed) = self.active_run_mut(run_id) else {
             return Ok(InputStatus::Ignored);
         };
         let Some(process) = managed.process.as_mut() else {
             return Ok(InputStatus::Ignored);
         };
         process.send_input_if_running(data)
+    }
+
+    pub fn pgid_for_run(&self, run_id: &str) -> Option<u32> {
+        self.active_run(run_id).map(|managed| managed.pgid)
+    }
+
+    pub fn status_for_run(&self, run_id: &str) -> Option<ManagedStatus> {
+        self.managed
+            .iter()
+            .find(|managed| managed.run_id == run_id)
+            .map(|managed| {
+                status_for(
+                    managed,
+                    managed.terminal_lifecycle.unwrap_or(Lifecycle::Starting),
+                )
+            })
     }
 
     pub fn reconcile(
@@ -210,13 +245,23 @@ impl ProjectRegistry {
     }
 
     #[cfg(test)]
-    fn insert_for_test(&mut self, project_id: &str, task_id: &str, pgid: u32, age: Duration) {
+    fn insert_for_test(
+        &mut self,
+        project_id: &str,
+        task_id: &str,
+        pgid: u32,
+        age: Duration,
+    ) -> String {
         // Mirror the real `insert`: a fresh start purges any retained terminal
         // entry for the same task.
         self.purge_terminal(project_id, task_id);
+        let run_id = new_run_id();
         self.managed.push(ManagedProcess {
-            project_id: project_id.to_string(),
-            task_id: task_id.to_string(),
+            run_id: run_id.clone(),
+            origin: ManagedOrigin::Project {
+                project_id: project_id.to_string(),
+                task_id: task_id.to_string(),
+            },
             pgid,
             started_at: Instant::now() - age,
             process: None,
@@ -224,7 +269,31 @@ impl ProjectRegistry {
             terminal_lifecycle: None,
             terminal_output: Vec::new(),
         });
+        run_id
     }
+
+    fn active_run(&self, run_id: &str) -> Option<&ManagedProcess> {
+        self.managed
+            .iter()
+            .find(|managed| managed.run_id == run_id && !is_terminal(managed))
+    }
+
+    fn active_run_mut(&mut self, run_id: &str) -> Option<&mut ManagedProcess> {
+        self.managed
+            .iter_mut()
+            .find(|managed| managed.run_id == run_id && !is_terminal(managed))
+    }
+}
+
+fn new_run_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn is_terminal(managed: &ManagedProcess) -> bool {
+    matches!(
+        managed.terminal_lifecycle,
+        Some(Lifecycle::Exited | Lifecycle::Crashed)
+    )
 }
 
 fn reconcile_lifecycle(
@@ -271,9 +340,19 @@ fn reconcile_lifecycle(
 }
 
 fn status_for(managed: &ManagedProcess, lifecycle: Lifecycle) -> ManagedStatus {
+    let (project_id, task_id) = match &managed.origin {
+        ManagedOrigin::Project {
+            project_id,
+            task_id,
+        } => (project_id.clone(), task_id.clone()),
+        ManagedOrigin::QuickRun { .. } => (String::new(), String::new()),
+    };
+
     ManagedStatus {
-        project_id: managed.project_id.clone(),
-        task_id: managed.task_id.clone(),
+        run_id: managed.run_id.clone(),
+        origin: managed.origin.clone(),
+        project_id,
+        task_id,
         pid: managed.pgid,
         lifecycle,
         recent_output: managed
@@ -337,11 +416,11 @@ mod tests {
     #[test]
     fn active_task_check_ignores_terminal_statuses() {
         let mut registry = ProjectRegistry::new(Duration::from_secs(10));
-        registry.insert_for_test("p1", "dev", 4242, Duration::from_secs(1));
+        let run_id = registry.insert_for_test("p1", "dev", 4242, Duration::from_secs(1));
 
-        assert!(registry.has_active_task("p1", "dev"));
+        assert!(registry.has_active_run(&run_id));
         registry.reconcile(|_pid| ExitState::Exited(0), |_pid| None, &[]);
-        assert!(!registry.has_active_task("p1", "dev"));
+        assert!(!registry.has_active_run(&run_id));
     }
 
     #[test]
@@ -363,5 +442,24 @@ mod tests {
         assert_eq!(dev.len(), 1, "restart must not leave a duplicate row");
         assert_eq!(dev[0].pid, 5555);
         assert_eq!(dev[0].lifecycle, Lifecycle::Starting);
+    }
+
+    #[test]
+    fn duplicate_task_entries_have_distinct_run_ids_and_lookup_routes_by_run_id() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let first_run_id = registry.insert_for_test("p1", "dev", 4242, Duration::from_secs(1));
+        let second_run_id = registry.insert_for_test("p1", "dev", 5555, Duration::from_secs(1));
+
+        assert_ne!(first_run_id, second_run_id);
+
+        let first = registry.status_for_run(&first_run_id).unwrap();
+        let second = registry.status_for_run(&second_run_id).unwrap();
+
+        assert_eq!(first.pid, 4242);
+        assert_eq!(second.pid, 5555);
+        assert_eq!(first.project_id, "p1");
+        assert_eq!(second.project_id, "p1");
+        assert_eq!(first.task_id, "dev");
+        assert_eq!(second.task_id, "dev");
     }
 }

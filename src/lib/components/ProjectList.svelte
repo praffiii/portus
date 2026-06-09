@@ -20,7 +20,7 @@
     managed: ManagedStatus[];
     taskActions: Record<string, TaskActionState>;
     onStart: (projectId: string, taskId: string) => void;
-    onStop: (pid: number, projectId: string, taskId: string) => void;
+    onStop: (runId: string, projectId: string, taskId: string) => void;
   } = $props();
 
   const OUTPUT_LIMIT = 8;
@@ -31,7 +31,12 @@
   }
 
   function statusFor(projectId: string, taskId: string): ManagedStatus | undefined {
-    return managed.find((m) => m.project_id === projectId && m.task_id === taskId);
+    return managed.find(
+      (m) =>
+        m.origin.kind === "project" &&
+        m.origin.project_id === projectId &&
+        m.origin.task_id === taskId
+    );
   }
 
   function badgeFor(lifecycle: Lifecycle): ServiceStatus {
@@ -117,7 +122,7 @@
                   title={`Stop ${task.name}`}
                   aria-label={`Stop ${task.name}`}
                   disabled={action === "stopping"}
-                  onclick={() => onStop(status.pid, project.id, task.id)}
+                  onclick={() => onStop(status.run_id, project.id, task.id)}
                 >
                   <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
                 </button>
@@ -143,6 +148,7 @@
           {/if}
           {#if status && expanded[key] && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
             <LogPeek
+              runId={status.run_id}
               projectId={project.id}
               taskId={task.id}
               readonly={false}

@@ -37,6 +37,7 @@ pub fn builder() -> Builder<tauri::Wry> {
         .typ::<LogBatch>()
         .typ::<LogLine>()
         .typ::<crate::projects::InputStatus>()
+        .typ::<crate::projects::ManagedOrigin>()
         .typ::<crate::projects::Project>()
         .typ::<crate::projects::Task>()
         .typ::<crate::projects::ManagedStatus>()

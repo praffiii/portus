@@ -15,7 +15,7 @@ pub use lifecycle::{classify, ExitState, Lifecycle};
 pub use parse::{
     detect_package_manager, parse_compose_services, parse_package_scripts, tasks_from_folder,
 };
-pub use registry::{ManagedStatus, ProjectRegistry};
+pub use registry::{ManagedOrigin, ManagedStatus, ProjectRegistry};
 pub use spawn::{
     spawn_task, InputStatus, ProcessExitStatus, RingBuffer, SpawnedProcess, RING_CAPACITY,
 };
