@@ -34,52 +34,59 @@
   <ul>
     {#each ports as item (item.key)}
       {@const actionState = actionStates[item.key] ?? "idle"}
-      <li>
-        <StatusBadge status={item.status} />
-        <span class="port">:{item.port}</span>
-        <div class="details">
-          <div class="primary">
-            <span class="process" title={item.process}>{item.process}</span>
-            <span class="source" class:source-orphan={item.source === "orphan?"}>{item.source}</span>
+      <li class:has-error={actionState === "failed" || actionState === "needs_privilege"}>
+        <div class="row-main">
+          <StatusBadge status={item.status} />
+          <span class="port">:{item.port}</span>
+          <div class="details">
+            <div class="primary">
+              <span class="process" title={item.process}>{item.process}</span>
+              <span class="source" class:source-orphan={item.source === "orphan?"}>{item.source}</span>
+            </div>
+            <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent.toFixed(1)}% CPU · ${item.memoryMb} MB`}>
+              <span class="cwd">{item.cwd}</span>
+              <span class="sec-dot" aria-hidden="true">·</span>
+              <span class="metric">{item.pid}</span>
+              <span class="sec-dot" aria-hidden="true">·</span>
+              <span class="metric">{item.cpuPercent.toFixed(1)}%</span>
+              <span class="sec-dot" aria-hidden="true">·</span>
+              <span class="metric">{item.memoryMb} MB</span>
+            </div>
           </div>
-          <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent.toFixed(1)}% CPU · ${item.memoryMb} MB`}>
-            <span class="cwd">{item.cwd}</span>
-            <span class="sec-dot" aria-hidden="true">·</span>
-            <span class="metric">{item.pid}</span>
-            <span class="sec-dot" aria-hidden="true">·</span>
-            <span class="metric">{item.cpuPercent.toFixed(1)}%</span>
-            <span class="sec-dot" aria-hidden="true">·</span>
-            <span class="metric">{item.memoryMb} MB</span>
+          <div class="row-actions">
+            <button
+              class="act-btn save-as"
+              type="button"
+              title={`Save ${item.process} as project`}
+              aria-label={`Save ${item.process} as project`}
+              disabled={item.pid === 0 || !item.cwd}
+              onclick={() => onSaveAs(item)}
+            >
+              <FolderPlus size={13} strokeWidth={1.9} aria-hidden="true" />
+            </button>
+            <button
+              class:needs-privilege={actionState === "needs_privilege"}
+              class:failed={actionState === "failed"}
+              class="act-btn kill"
+              type="button"
+              title={actionLabel(item, actionState)}
+              aria-label={actionLabel(item, actionState)}
+              disabled={item.pid === 0 || actionState === "killing" || actionState === "needs_privilege"}
+              onclick={() => onKill(item)}
+            >
+              {#if actionState === "needs_privilege"}
+                <LockKeyhole size={13} strokeWidth={1.9} aria-hidden="true" />
+              {:else}
+                <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
+              {/if}
+            </button>
           </div>
         </div>
-        <div class="row-actions">
-          <button
-            class="act-btn save-as"
-            type="button"
-            title={`Save ${item.process} as project`}
-            aria-label={`Save ${item.process} as project`}
-            disabled={item.pid === 0 || !item.cwd}
-            onclick={() => onSaveAs(item)}
-          >
-            <FolderPlus size={13} strokeWidth={1.9} aria-hidden="true" />
-          </button>
-          <button
-            class:needs-privilege={actionState === "needs_privilege"}
-            class:failed={actionState === "failed"}
-            class="act-btn kill"
-            type="button"
-            title={actionLabel(item, actionState)}
-            aria-label={actionLabel(item, actionState)}
-            disabled={item.pid === 0 || actionState === "killing" || actionState === "needs_privilege"}
-            onclick={() => onKill(item)}
-          >
-            {#if actionState === "needs_privilege"}
-              <LockKeyhole size={13} strokeWidth={1.9} aria-hidden="true" />
-            {:else}
-              <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
-            {/if}
-          </button>
-        </div>
+        {#if actionState === "failed"}
+          <p class="port-error">Stop failed. The port is still listening.</p>
+        {:else if actionState === "needs_privilege"}
+          <p class="port-error warning">Needs elevated privileges to stop this process.</p>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -120,15 +127,18 @@
   }
 
   li {
-    display: grid;
-    grid-template-columns: 16px 52px minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
     min-height: 54px;
     padding: 8px 12px;
     border-bottom: 1px solid var(--hairline);
     outline: none;
     transition: background-color 100ms ease;
+  }
+
+  .row-main {
+    display: grid;
+    grid-template-columns: 16px 52px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
   }
 
   li:last-child {
@@ -275,6 +285,17 @@
     flex: 0 0 auto;
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+
+  .port-error {
+    margin: 8px 0 0 76px;
+    color: var(--crashed);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .port-error.warning {
+    color: var(--waiting);
   }
 
   @media (prefers-reduced-motion: reduce) {
