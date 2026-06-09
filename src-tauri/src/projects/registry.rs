@@ -30,15 +30,8 @@ pub struct LaunchSpec {
 #[derive(Clone, Debug, PartialEq, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ManagedOrigin {
-    Project {
-        project_id: String,
-        task_id: String,
-    },
-    QuickRun {
-        run_id: String,
-        cwd: String,
-        command: String,
-    },
+    Project { project_id: String, task_id: String },
+    QuickRun,
 }
 
 struct ManagedProcess {
@@ -96,11 +89,7 @@ impl ProjectRegistry {
         let run_id = new_run_id();
         self.managed.push(ManagedProcess {
             run_id: run_id.clone(),
-            origin: ManagedOrigin::QuickRun {
-                run_id: run_id.clone(),
-                cwd: launch_spec.cwd.clone(),
-                command: launch_spec.command.clone(),
-            },
+            origin: ManagedOrigin::QuickRun,
             launch_spec,
             pgid: process.pgid(),
             started_at: Instant::now(),
@@ -297,11 +286,7 @@ impl ProjectRegistry {
         let run_id = new_run_id();
         self.managed.push(ManagedProcess {
             run_id: run_id.clone(),
-            origin: ManagedOrigin::QuickRun {
-                run_id: run_id.clone(),
-                cwd: launch_spec.cwd.clone(),
-                command: launch_spec.command.clone(),
-            },
+            origin: ManagedOrigin::QuickRun,
             launch_spec,
             pgid,
             started_at: Instant::now(),
@@ -548,14 +533,7 @@ mod tests {
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].run_id, run_id);
         assert_eq!(statuses[0].launch_spec, launch_spec);
-        assert_eq!(
-            statuses[0].origin,
-            ManagedOrigin::QuickRun {
-                run_id,
-                cwd: "/Users/test/project".to_string(),
-                command: "pnpm dev".to_string(),
-            }
-        );
+        assert_eq!(statuses[0].origin, ManagedOrigin::QuickRun);
     }
 
     #[test]
@@ -583,7 +561,7 @@ mod tests {
         let statuses = registry.reconcile(|_pid| ExitState::Alive, |_pid| None, &[]);
         let quick_runs: Vec<_> = statuses
             .iter()
-            .filter(|status| matches!(status.origin, ManagedOrigin::QuickRun { .. }))
+            .filter(|status| matches!(status.origin, ManagedOrigin::QuickRun))
             .collect();
         assert_eq!(quick_runs.len(), 2);
     }

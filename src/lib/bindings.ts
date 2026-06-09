@@ -74,7 +74,7 @@ export type LogLine = {
 	html: string,
 };
 
-export type ManagedOrigin = { kind: "project"; project_id: string; task_id: string } | { kind: "quick_run"; run_id: string; cwd: string; command: string };
+export type ManagedOrigin = { kind: "project"; project_id: string; task_id: string } | { kind: "quick_run" };
 
 export type ManagedStatus = {
 	run_id: string,
