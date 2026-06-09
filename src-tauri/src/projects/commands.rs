@@ -288,20 +288,21 @@ pub fn save_quick_run_as_project(
     registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
     run_id: String,
 ) -> Result<Vec<Project>, String> {
-    let registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    let launch_spec = {
+        let registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+        registry.launch_spec_for_run(&run_id)
+    }
+    .ok_or("quick-run not found")?;
+
     let mut data = state.data.lock().unwrap_or_else(|e| e.into_inner());
-    save_quick_run_as_project_data(&state.store, &mut data, &registry, &run_id)
+    save_quick_run_as_project_data(&state.store, &mut data, launch_spec)
 }
 
 fn save_quick_run_as_project_data(
     store: &ProjectStore,
     data: &mut ProjectStoreData,
-    registry: &ProjectRegistry,
-    run_id: &str,
+    launch_spec: LaunchSpec,
 ) -> Result<Vec<Project>, String> {
-    let launch_spec = registry
-        .launch_spec_for_run(run_id)
-        .ok_or("quick-run not found")?;
     append_task_to_folder(data, &launch_spec.cwd, launch_spec.command);
     store.save(data).map_err(|e| e.to_string())?;
     Ok(data.projects.clone())
@@ -559,8 +560,9 @@ mod tests {
             4242,
         );
 
-        let projects =
-            save_quick_run_as_project_data(&store, &mut data, &registry, &run_id).unwrap();
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        let projects = save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
 
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].name, "renamed web");
@@ -590,8 +592,9 @@ mod tests {
             4242,
         );
 
-        let projects =
-            save_quick_run_as_project_data(&store, &mut data, &registry, &run_id).unwrap();
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        let projects = save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
 
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].name, "api");
@@ -616,8 +619,9 @@ mod tests {
         );
         registry.reconcile(|_pid| super::super::ExitState::Exited(0), |_pid| None, &[]);
 
-        let projects =
-            save_quick_run_as_project_data(&store, &mut data, &registry, &run_id).unwrap();
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        let projects = save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
 
         assert_eq!(projects[0].tasks[0].command, "cargo run");
     }
@@ -638,7 +642,9 @@ mod tests {
             4242,
         );
 
-        save_quick_run_as_project_data(&store, &mut data, &registry, &run_id).unwrap();
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
 
         assert!(registry.has_active_run(&run_id));
         let statuses = registry.reconcile(|_pid| super::super::ExitState::Alive, |_pid| None, &[]);
@@ -646,15 +652,14 @@ mod tests {
     }
 
     #[test]
-    fn save_quick_run_as_project_rejects_unknown_run_id() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let store = ProjectStore::new(dir.path().join("projects.json"));
-        let mut data = ProjectStoreData::default();
+    fn quick_run_launch_spec_rejects_unknown_run_id_before_save() {
         let registry = ProjectRegistry::new(Duration::from_secs(10));
 
-        let error =
-            save_quick_run_as_project_data(&store, &mut data, &registry, "missing").unwrap_err();
+        let error = registry
+            .launch_spec_for_run("missing")
+            .ok_or("quick-run not found")
+            .unwrap_err();
 
-        assert!(error.contains("quick-run not found"));
+        assert_eq!(error, "quick-run not found");
     }
 }
