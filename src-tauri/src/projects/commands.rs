@@ -11,7 +11,7 @@ use crate::logs::ansi::LogBatch;
 use crate::process::{ProcessProbe, SystemProcessProbe};
 
 use super::parse::tasks_from_folder;
-use super::registry::ProjectRegistry;
+use super::registry::{LaunchSpec, ProjectRegistry};
 use super::spawn::spawn_task;
 use super::store::{upsert, ProjectStore, ProjectStoreData};
 use super::{InputStatus, Project, Task};
@@ -194,8 +194,16 @@ pub fn start_task(
         return Err("task is already running".to_string());
     }
     let process =
-        spawn_task(&login_shell(), &command, &PathBuf::from(folder)).map_err(|e| e.to_string())?;
-    registry.insert(project_id, task_id, process);
+        spawn_task(&login_shell(), &command, &PathBuf::from(&folder)).map_err(|e| e.to_string())?;
+    registry.insert(
+        project_id,
+        task_id,
+        LaunchSpec {
+            command,
+            cwd: folder,
+        },
+        process,
+    );
     Ok(())
 }
 

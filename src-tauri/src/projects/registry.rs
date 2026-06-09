@@ -15,9 +15,16 @@ const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
 pub struct ManagedStatus {
     pub run_id: String,
     pub origin: ManagedOrigin,
+    pub launch_spec: LaunchSpec,
     pub pid: u32,
     pub lifecycle: Lifecycle,
     pub recent_output: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Type)]
+pub struct LaunchSpec {
+    pub command: String,
+    pub cwd: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Type)]
@@ -37,6 +44,7 @@ pub enum ManagedOrigin {
 struct ManagedProcess {
     run_id: String,
     origin: ManagedOrigin,
+    launch_spec: LaunchSpec,
     pgid: u32,
     started_at: Instant,
     process: Option<SpawnedProcess>,
@@ -62,6 +70,7 @@ impl ProjectRegistry {
         &mut self,
         project_id: String,
         task_id: String,
+        launch_spec: LaunchSpec,
         process: SpawnedProcess,
     ) -> String {
         self.purge_terminal(&project_id, &task_id);
@@ -72,6 +81,7 @@ impl ProjectRegistry {
                 project_id,
                 task_id,
             },
+            launch_spec,
             pgid: process.pgid(),
             started_at: Instant::now(),
             process: Some(process),
@@ -248,6 +258,10 @@ impl ProjectRegistry {
                 project_id: project_id.to_string(),
                 task_id: task_id.to_string(),
             },
+            launch_spec: LaunchSpec {
+                command: "pnpm dev".to_string(),
+                cwd: "/tmp/portus-test".to_string(),
+            },
             pgid,
             started_at: Instant::now() - age,
             process: None,
@@ -329,6 +343,7 @@ fn status_for(managed: &ManagedProcess, lifecycle: Lifecycle) -> ManagedStatus {
     ManagedStatus {
         run_id: managed.run_id.clone(),
         origin: managed.origin.clone(),
+        launch_spec: managed.launch_spec.clone(),
         pid: managed.pgid,
         lifecycle,
         recent_output: managed
@@ -464,5 +479,17 @@ mod tests {
                 task_id: "dev".to_string()
             }
         );
+    }
+
+    #[test]
+    fn terminal_status_preserves_launch_command_and_cwd() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        registry.insert_for_test("p1", "dev", 4242, Duration::from_secs(1));
+
+        let statuses = registry.reconcile(|_pid| ExitState::Exited(0), |_pid| None, &[]);
+
+        assert_eq!(statuses[0].lifecycle, Lifecycle::Exited);
+        assert_eq!(statuses[0].launch_spec.command, "pnpm dev");
+        assert_eq!(statuses[0].launch_spec.cwd, "/tmp/portus-test");
     }
 }

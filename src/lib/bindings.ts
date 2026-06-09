@@ -58,6 +58,11 @@ export type KillTarget = {
 	expected_port: number | null,
 };
 
+export type LaunchSpec = {
+	command: string,
+	cwd: string,
+};
+
 export type Lifecycle = "starting" | "running" | "running_no_port" | "waiting" | "exited" | "crashed";
 
 export type LogBatch = {
@@ -73,6 +78,7 @@ export type ManagedOrigin = { kind: "project"; project_id: string; task_id: stri
 export type ManagedStatus = {
 	run_id: string,
 	origin: ManagedOrigin,
+	launch_spec: LaunchSpec,
 	pid: number,
 	lifecycle: Lifecycle,
 	recent_output: string[],
