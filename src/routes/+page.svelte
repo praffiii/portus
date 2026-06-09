@@ -8,6 +8,7 @@
   import DockerList from "$lib/components/DockerList.svelte";
   import PortList, { type PortActionState } from "$lib/components/PortList.svelte";
   import ProjectList, { type TaskActionState } from "$lib/components/ProjectList.svelte";
+  import QuickRun from "$lib/components/QuickRun.svelte";
   import { snapshotFixture } from "$lib/fixtures";
   import { containersToDockerRows, snapshotToPortRows, type PortRowView } from "$lib/snapshot-adapter";
 
@@ -190,6 +191,28 @@
     }
   }
 
+  async function startQuickRun(command: string, cwd: string): Promise<string | undefined> {
+    if (!isTauri()) return "Quick-run is available in the app";
+    const result = await commands.startQuickRun(command, cwd);
+    if (result.status === "error") return result.error;
+    return undefined;
+  }
+
+  async function stopQuickRun(runId: string): Promise<string | undefined> {
+    if (!isTauri()) return "Quick-run is available in the app";
+    const result = await commands.stopTask(runId);
+    if (result.status === "error") return result.error;
+    return undefined;
+  }
+
+  async function saveQuickRun(runId: string): Promise<string | undefined> {
+    if (!isTauri()) return "Quick-run is available in the app";
+    const result = await commands.saveQuickRunAsProject(runId);
+    if (result.status === "error") return result.error;
+    projects = result.data;
+    return undefined;
+  }
+
   function taskKey(projectId: string, taskId: string): string {
     return `${projectId}:${taskId}`;
   }
@@ -239,23 +262,16 @@
   </header>
 
   <div class="scroll-body">
+    <QuickRun
+      {projects}
+      {managed}
+      onRun={startQuickRun}
+      onStop={stopQuickRun}
+      onSave={saveQuickRun}
+    />
     <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
     <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
     <DockerList {containers} />
-  </div>
-
-  <!-- Quick-run bar: visual chrome; command execution lands with Layer 2-3 (T8). -->
-  <div class="quick-run">
-    <span class="qr-prompt" aria-hidden="true">›</span>
-    <input
-      class="qr-input"
-      type="text"
-      placeholder="Quick run a command…"
-      spellcheck="false"
-      title="Quick run (unavailable)"
-      aria-label="Quick run a command (unavailable)"
-      disabled
-    />
   </div>
 
   <footer class="footer">
@@ -467,42 +483,6 @@
   .icon-button:hover:not(:disabled) {
     opacity: 1;
     background: rgb(127 127 127 / 12%);
-  }
-
-  /* Quick-run bar — visual chrome until command execution lands (T8). */
-  .quick-run {
-    display: flex;
-    height: 36px;
-    flex: 0 0 36px;
-    align-items: center;
-    gap: 8px;
-    padding: 0 12px;
-    border-top: 1px solid var(--hairline);
-    background: var(--app-bg);
-  }
-
-  .qr-prompt {
-    margin-top: -1px;
-    color: var(--accent);
-    font-family: var(--font-mono);
-    font-size: 14px;
-    line-height: 1;
-    user-select: none;
-  }
-
-  .qr-input {
-    min-width: 0;
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    outline: none;
-  }
-
-  .qr-input::placeholder {
-    color: var(--text-muted);
   }
 
   .footer {
