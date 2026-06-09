@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::Serialize;
 use specta::Type;
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::logs::ansi::LogBatch;
 use crate::process::{ProcessProbe, SystemProcessProbe};
@@ -13,7 +13,7 @@ use crate::process::{ProcessProbe, SystemProcessProbe};
 use super::parse::tasks_from_folder;
 use super::registry::{LaunchSpec, ProjectRegistry};
 use super::spawn::spawn_task;
-use super::store::{upsert, ProjectStore, ProjectStoreData};
+use super::store::{append_task_to_folder, upsert, ProjectStore, ProjectStoreData};
 use super::{InputStatus, Project, Task};
 
 pub struct ProjectsState {
@@ -40,6 +40,58 @@ fn login_shell() -> String {
         .filter(|shell| !shell.trim().is_empty())
         .or_else(login_shell_from_passwd)
         .unwrap_or_else(|| "/bin/zsh".to_string())
+}
+
+#[derive(Debug, PartialEq)]
+struct ValidQuickRunRequest {
+    command: String,
+    cwd: PathBuf,
+}
+
+fn validate_quick_run_request(
+    command: &str,
+    cwd: &str,
+    home_dir: impl FnOnce() -> Option<PathBuf>,
+    is_readable_dir: impl FnOnce(&Path) -> bool,
+) -> Result<ValidQuickRunRequest, String> {
+    let command = command.trim().to_string();
+    if command.is_empty() {
+        return Err("quick-run command cannot be blank".to_string());
+    }
+
+    let cwd = expand_tilde(cwd, home_dir)?;
+    if !cwd.exists() {
+        return Err(format!("folder does not exist: {}", cwd.display()));
+    }
+    if !cwd.is_dir() {
+        return Err(format!("folder is not a directory: {}", cwd.display()));
+    }
+    if !is_readable_dir(&cwd) {
+        return Err(format!("folder is not readable: {}", cwd.display()));
+    }
+
+    Ok(ValidQuickRunRequest { command, cwd })
+}
+
+fn expand_tilde(cwd: &str, home_dir: impl FnOnce() -> Option<PathBuf>) -> Result<PathBuf, String> {
+    if cwd == "~" {
+        return home_dir().ok_or("could not resolve home directory".to_string());
+    }
+    if let Some(rest) = cwd.strip_prefix("~/") {
+        let home = home_dir().ok_or("could not resolve home directory".to_string())?;
+        return Ok(home.join(rest));
+    }
+    Ok(PathBuf::from(cwd))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
+fn is_readable_dir(path: &Path) -> bool {
+    std::fs::read_dir(path).is_ok()
 }
 
 #[cfg(unix)]
@@ -138,6 +190,61 @@ pub fn load_projects(state: State<'_, ProjectsState>) -> Vec<Project> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::{ActivationPolicy, Manager};
+        use tauri_plugin_dialog::DialogExt;
+
+        struct FolderDialogScope<'a> {
+            app: &'a AppHandle,
+        }
+
+        impl Drop for FolderDialogScope<'_> {
+            fn drop(&mut self) {
+                if let Err(error) = self.app.set_activation_policy(ActivationPolicy::Accessory) {
+                    eprintln!("failed to restore Portus accessory activation policy: {error}");
+                }
+                if let Some(window) = self.app.get_webview_window(crate::ui::POPOVER_LABEL) {
+                    if let Err(error) = window.set_focus() {
+                        eprintln!("failed to restore Portus popover focus: {error}");
+                    }
+                }
+                self.app.state::<crate::ui::DialogGuard>().disarm();
+            }
+        }
+
+        app.state::<crate::ui::DialogGuard>().arm();
+        let _scope = FolderDialogScope { app: &app };
+        app.set_activation_policy(ActivationPolicy::Regular)
+            .map_err(|error| error.to_string())?;
+        let dialog_app = app.clone();
+
+        let folder = tauri::async_runtime::spawn_blocking(move || {
+            dialog_app.dialog().file().blocking_pick_folder()
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+
+        folder
+            .map(|folder| {
+                folder
+                    .into_path()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .map_err(|error| error.to_string())
+            })
+            .transpose()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn suggest_tasks(folder: String) -> Vec<Task> {
     tasks_from_folder(Path::new(&folder))
 }
@@ -205,6 +312,55 @@ pub fn start_task(
         process,
     );
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn start_quick_run(
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    command: String,
+    cwd: String,
+) -> Result<String, String> {
+    let request = validate_quick_run_request(&command, &cwd, home_dir, is_readable_dir)?;
+
+    let mut registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+    let process =
+        spawn_task(&login_shell(), &request.command, &request.cwd).map_err(|e| e.to_string())?;
+    let run_id = registry.insert_quick_run(
+        LaunchSpec {
+            command: request.command,
+            cwd: request.cwd.to_string_lossy().to_string(),
+        },
+        process,
+    );
+    Ok(run_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn save_quick_run_as_project(
+    state: State<'_, ProjectsState>,
+    registry: State<'_, Arc<Mutex<ProjectRegistry>>>,
+    run_id: String,
+) -> Result<Vec<Project>, String> {
+    let launch_spec = {
+        let registry = registry.lock().unwrap_or_else(|e| e.into_inner());
+        registry.launch_spec_for_run(&run_id)
+    }
+    .ok_or("quick-run not found")?;
+
+    let mut data = state.data.lock().unwrap_or_else(|e| e.into_inner());
+    save_quick_run_as_project_data(&state.store, &mut data, launch_spec)
+}
+
+fn save_quick_run_as_project_data(
+    store: &ProjectStore,
+    data: &mut ProjectStoreData,
+    launch_spec: LaunchSpec,
+) -> Result<Vec<Project>, String> {
+    append_task_to_folder(data, &launch_spec.cwd, launch_spec.command);
+    store.save(data).map_err(|e| e.to_string())?;
+    Ok(data.projects.clone())
 }
 
 #[tauri::command]
@@ -347,5 +503,218 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].pid, 100);
         assert_eq!(candidates[1].pid, 200);
+    }
+
+    #[test]
+    fn quick_run_folder_expands_tilde_and_validates_directory() {
+        let home = tempfile::tempdir().expect("home dir");
+        let project = home.path().join("repo");
+        std::fs::create_dir(&project).expect("create project dir");
+
+        let resolved = validate_quick_run_request(
+            "pnpm dev",
+            "~/repo",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect("valid request");
+
+        assert_eq!(resolved.command, "pnpm dev");
+        assert_eq!(resolved.cwd, project);
+    }
+
+    #[test]
+    fn quick_run_folder_rejects_missing_paths() {
+        let home = tempfile::tempdir().expect("home dir");
+
+        let error = validate_quick_run_request(
+            "pnpm dev",
+            "~/missing",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect_err("missing path should be rejected");
+
+        assert!(error.contains("does not exist"));
+    }
+
+    #[test]
+    fn quick_run_folder_rejects_non_directories() {
+        let home = tempfile::tempdir().expect("home dir");
+        let file = home.path().join("package.json");
+        std::fs::write(&file, "{}").expect("write file");
+
+        let error = validate_quick_run_request(
+            "pnpm dev",
+            "~/package.json",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect_err("file path should be rejected");
+
+        assert!(error.contains("not a directory"));
+    }
+
+    #[test]
+    fn quick_run_folder_rejects_unreadable_directories() {
+        let home = tempfile::tempdir().expect("home dir");
+        let project = home.path().join("repo");
+        std::fs::create_dir(&project).expect("create project dir");
+
+        let error = validate_quick_run_request(
+            "pnpm dev",
+            "~/repo",
+            || Some(home.path().to_path_buf()),
+            |_| false,
+        )
+        .expect_err("unreadable dir should be rejected");
+
+        assert!(error.contains("not readable"));
+    }
+
+    #[test]
+    fn quick_run_rejects_blank_commands() {
+        let home = tempfile::tempdir().expect("home dir");
+
+        let error = validate_quick_run_request(
+            "   \n\t",
+            "~",
+            || Some(home.path().to_path_buf()),
+            |_| true,
+        )
+        .expect_err("blank command should be rejected");
+
+        assert!(error.contains("command cannot be blank"));
+    }
+
+    #[test]
+    fn save_quick_run_as_project_appends_and_preserves_existing_tasks() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let folder = dir.path().join("web");
+        std::fs::create_dir(&folder).expect("project folder");
+        let store = ProjectStore::new(dir.path().join("projects.json"));
+        let mut data = ProjectStoreData {
+            version: 1,
+            projects: vec![Project {
+                id: super::super::store::canonicalize_folder(&folder.to_string_lossy()),
+                name: "renamed web".to_string(),
+                folder: super::super::store::canonicalize_folder(&folder.to_string_lossy()),
+                tasks: vec![Task {
+                    id: "dev".to_string(),
+                    name: "dev".to_string(),
+                    command: "pnpm dev".to_string(),
+                }],
+            }],
+        };
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let run_id = registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "pnpm test".to_string(),
+                cwd: folder.to_string_lossy().to_string(),
+            },
+            4242,
+        );
+
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        let projects = save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "renamed web");
+        assert_eq!(projects[0].tasks.len(), 2);
+        assert_eq!(projects[0].tasks[0].command, "pnpm dev");
+        assert_eq!(
+            projects[0].tasks[1].command, "pnpm test",
+            "preserves existing tasks while appending promoted quick-run"
+        );
+        let reloaded = store.load().data;
+        assert_eq!(reloaded.projects[0].tasks.len(), 2);
+    }
+
+    #[test]
+    fn save_quick_run_as_project_creates_project_for_new_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let folder = dir.path().join("api");
+        std::fs::create_dir(&folder).expect("project folder");
+        let store = ProjectStore::new(dir.path().join("projects.json"));
+        let mut data = ProjectStoreData::default();
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let run_id = registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "cargo run".to_string(),
+                cwd: folder.to_string_lossy().to_string(),
+            },
+            4242,
+        );
+
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        let projects = save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "api");
+        assert_eq!(projects[0].tasks.len(), 1);
+        assert_eq!(projects[0].tasks[0].command, "cargo run");
+    }
+
+    #[test]
+    fn save_quick_run_as_project_works_after_quick_run_exits() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let folder = dir.path().join("api");
+        std::fs::create_dir(&folder).expect("project folder");
+        let store = ProjectStore::new(dir.path().join("projects.json"));
+        let mut data = ProjectStoreData::default();
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let run_id = registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "cargo run".to_string(),
+                cwd: folder.to_string_lossy().to_string(),
+            },
+            4242,
+        );
+        registry.reconcile(|_pid| super::super::ExitState::Exited(0), |_pid| None, &[]);
+
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        let projects = save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
+
+        assert_eq!(projects[0].tasks[0].command, "cargo run");
+    }
+
+    #[test]
+    fn save_quick_run_as_project_keeps_live_registry_entry() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let folder = dir.path().join("api");
+        std::fs::create_dir(&folder).expect("project folder");
+        let store = ProjectStore::new(dir.path().join("projects.json"));
+        let mut data = ProjectStoreData::default();
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let run_id = registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "cargo run".to_string(),
+                cwd: folder.to_string_lossy().to_string(),
+            },
+            4242,
+        );
+
+        let launch_spec = registry.launch_spec_for_run(&run_id).unwrap();
+
+        save_quick_run_as_project_data(&store, &mut data, launch_spec).unwrap();
+
+        assert!(registry.has_active_run(&run_id));
+        let statuses = registry.reconcile(|_pid| super::super::ExitState::Alive, |_pid| None, &[]);
+        assert_eq!(statuses[0].origin, super::super::ManagedOrigin::QuickRun);
+    }
+
+    #[test]
+    fn quick_run_launch_spec_rejects_unknown_run_id_before_save() {
+        let registry = ProjectRegistry::new(Duration::from_secs(10));
+
+        let error = registry
+            .launch_spec_for_run("missing")
+            .ok_or("quick-run not found")
+            .unwrap_err();
+
+        assert_eq!(error, "quick-run not found");
     }
 }

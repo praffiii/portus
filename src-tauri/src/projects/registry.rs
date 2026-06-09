@@ -30,15 +30,8 @@ pub struct LaunchSpec {
 #[derive(Clone, Debug, PartialEq, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ManagedOrigin {
-    Project {
-        project_id: String,
-        task_id: String,
-    },
-    QuickRun {
-        run_id: String,
-        cwd: String,
-        command: String,
-    },
+    Project { project_id: String, task_id: String },
+    QuickRun,
 }
 
 struct ManagedProcess {
@@ -81,6 +74,22 @@ impl ProjectRegistry {
                 project_id,
                 task_id,
             },
+            launch_spec,
+            pgid: process.pgid(),
+            started_at: Instant::now(),
+            process: Some(process),
+            terminal_since: None,
+            terminal_lifecycle: None,
+            terminal_output: Vec::new(),
+        });
+        run_id
+    }
+
+    pub fn insert_quick_run(&mut self, launch_spec: LaunchSpec, process: SpawnedProcess) -> String {
+        let run_id = new_run_id();
+        self.managed.push(ManagedProcess {
+            run_id: run_id.clone(),
+            origin: ManagedOrigin::QuickRun,
             launch_spec,
             pgid: process.pgid(),
             started_at: Instant::now(),
@@ -178,6 +187,13 @@ impl ProjectRegistry {
         self.active_run(run_id).map(|managed| managed.pgid)
     }
 
+    pub fn launch_spec_for_run(&self, run_id: &str) -> Option<LaunchSpec> {
+        self.managed
+            .iter()
+            .find(|managed| managed.run_id == run_id)
+            .map(|managed| managed.launch_spec.clone())
+    }
+
     pub fn reconcile(
         &mut self,
         mut exit_of: impl FnMut(u32) -> ExitState,
@@ -264,6 +280,27 @@ impl ProjectRegistry {
             },
             pgid,
             started_at: Instant::now() - age,
+            process: None,
+            terminal_since: None,
+            terminal_lifecycle: None,
+            terminal_output: Vec::new(),
+        });
+        run_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_quick_run_for_test(
+        &mut self,
+        launch_spec: LaunchSpec,
+        pgid: u32,
+    ) -> String {
+        let run_id = new_run_id();
+        self.managed.push(ManagedProcess {
+            run_id: run_id.clone(),
+            origin: ManagedOrigin::QuickRun,
+            launch_spec,
+            pgid,
+            started_at: Instant::now(),
             process: None,
             terminal_since: None,
             terminal_lifecycle: None,
@@ -491,5 +528,80 @@ mod tests {
         assert_eq!(statuses[0].lifecycle, Lifecycle::Exited);
         assert_eq!(statuses[0].launch_spec.command, "pnpm dev");
         assert_eq!(statuses[0].launch_spec.cwd, "/tmp/portus-test");
+    }
+
+    #[test]
+    fn quick_run_insert_sets_origin_launch_spec_and_distinct_run_id() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let launch_spec = LaunchSpec {
+            command: "pnpm dev".to_string(),
+            cwd: "/Users/test/project".to_string(),
+        };
+
+        let run_id = registry.insert_quick_run_for_test(launch_spec.clone(), 4242);
+        let statuses = registry.reconcile(|_pid| ExitState::Alive, |_pid| None, &[]);
+
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].run_id, run_id);
+        assert_eq!(statuses[0].launch_spec, launch_spec);
+        assert_eq!(statuses[0].origin, ManagedOrigin::QuickRun);
+    }
+
+    #[test]
+    fn duplicate_quick_runs_route_independently_by_run_id() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let first_run_id = registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "pnpm dev".to_string(),
+                cwd: "/tmp/portus-a".to_string(),
+            },
+            4242,
+        );
+        let second_run_id = registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "pnpm dev".to_string(),
+                cwd: "/tmp/portus-a".to_string(),
+            },
+            5555,
+        );
+
+        assert_ne!(first_run_id, second_run_id);
+        assert_eq!(registry.pgid_for_run(&first_run_id), Some(4242));
+        assert_eq!(registry.pgid_for_run(&second_run_id), Some(5555));
+
+        let statuses = registry.reconcile(|_pid| ExitState::Alive, |_pid| None, &[]);
+        let quick_runs: Vec<_> = statuses
+            .iter()
+            .filter(|status| matches!(status.origin, ManagedOrigin::QuickRun))
+            .collect();
+        assert_eq!(quick_runs.len(), 2);
+    }
+
+    #[test]
+    fn launch_spec_for_run_finds_terminal_quick_runs() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let launch_spec = LaunchSpec {
+            command: "pnpm dev".to_string(),
+            cwd: "/tmp/portus-a".to_string(),
+        };
+        let run_id = registry.insert_quick_run_for_test(launch_spec.clone(), 4242);
+
+        registry.reconcile(|_pid| ExitState::Exited(0), |_pid| None, &[]);
+
+        assert_eq!(registry.launch_spec_for_run(&run_id), Some(launch_spec));
+    }
+
+    #[test]
+    fn quick_run_pgids_are_included_for_kill_on_quit() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        registry.insert_quick_run_for_test(
+            LaunchSpec {
+                command: "pnpm dev".to_string(),
+                cwd: "/tmp/portus-a".to_string(),
+            },
+            4242,
+        );
+
+        assert_eq!(registry.pgids(), vec![4242]);
     }
 }

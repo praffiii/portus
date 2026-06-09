@@ -11,10 +11,13 @@ export const commands = {
 	subscribeDockerLogs: (containerId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_docker_logs", { containerId, channel })),
 	unsubscribeDockerLogs: (containerId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_docker_logs", { containerId })),
 	loadProjects: () => __TAURI_INVOKE<Project[]>("load_projects"),
+	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	suggestTasks: (folder: string) => __TAURI_INVOKE<Task[]>("suggest_tasks", { folder }),
 	saveProject: (project: Project) => typedError<Project[], string>(__TAURI_INVOKE("save_project", { project })),
 	removeProject: (id: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { id })),
 	startTask: (projectId: string, taskId: string) => typedError<null, string>(__TAURI_INVOKE("start_task", { projectId, taskId })),
+	startQuickRun: (command: string, cwd: string) => typedError<string, string>(__TAURI_INVOKE("start_quick_run", { command, cwd })),
+	saveQuickRunAsProject: (runId: string) => typedError<Project[], string>(__TAURI_INVOKE("save_quick_run_as_project", { runId })),
 	stopTask: (runId: string) => typedError<null, string>(__TAURI_INVOKE("stop_task", { runId })),
 	subscribeLogs: (runId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_logs", { runId, channel })),
 	unsubscribeLogs: (runId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_logs", { runId })),
@@ -73,7 +76,7 @@ export type LogLine = {
 	html: string,
 };
 
-export type ManagedOrigin = { kind: "project"; project_id: string; task_id: string } | { kind: "quick_run"; run_id: string; cwd: string; command: string };
+export type ManagedOrigin = { kind: "project"; project_id: string; task_id: string } | { kind: "quick_run" };
 
 export type ManagedStatus = {
 	run_id: string,
