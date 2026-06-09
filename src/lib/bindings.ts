@@ -11,6 +11,7 @@ export const commands = {
 	subscribeDockerLogs: (containerId: string, channel: Channel<LogBatch>) => typedError<null, string>(__TAURI_INVOKE("subscribe_docker_logs", { containerId, channel })),
 	unsubscribeDockerLogs: (containerId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_docker_logs", { containerId })),
 	loadProjects: () => __TAURI_INVOKE<Project[]>("load_projects"),
+	pickFolder: () => typedError<string | null, string>(__TAURI_INVOKE("pick_folder")),
 	suggestTasks: (folder: string) => __TAURI_INVOKE<Task[]>("suggest_tasks", { folder }),
 	saveProject: (project: Project) => typedError<Project[], string>(__TAURI_INVOKE("save_project", { project })),
 	removeProject: (id: string) => typedError<Project[], string>(__TAURI_INVOKE("remove_project", { id })),

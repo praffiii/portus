@@ -1,6 +1,5 @@
 <script lang="ts">
   import { isTauri } from "@tauri-apps/api/core";
-  import { open } from "@tauri-apps/plugin-dialog";
   import { Anchor, Plus, Settings } from "@lucide/svelte";
   import { onMount } from "svelte";
 
@@ -156,14 +155,15 @@
 
   async function addProjectFromFolder() {
     if (!isTauri()) return;
-    const folder = await open({ directory: true, multiple: false });
-    if (typeof folder !== "string") return;
+    const result = await commands.pickFolder();
+    if (result.status === "error" || result.data === null) return;
 
+    const folder = result.data;
     const tasks = await commands.suggestTasks(folder);
     const name = folder.split("/").filter(Boolean).pop() ?? folder;
-    const result = await commands.saveProject({ id: "", name, folder, tasks });
-    if (result.status === "ok") {
-      projects = result.data;
+    const saveResult = await commands.saveProject({ id: "", name, folder, tasks });
+    if (saveResult.status === "ok") {
+      projects = saveResult.data;
     }
   }
 

@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::Serialize;
 use specta::Type;
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::logs::ansi::LogBatch;
 use crate::process::{ProcessProbe, SystemProcessProbe};
@@ -186,6 +186,61 @@ pub fn load_projects(state: State<'_, ProjectsState>) -> Vec<Project> {
         .unwrap_or_else(|e| e.into_inner())
         .projects
         .clone()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::{ActivationPolicy, Manager};
+        use tauri_plugin_dialog::DialogExt;
+
+        struct FolderDialogScope<'a> {
+            app: &'a AppHandle,
+        }
+
+        impl Drop for FolderDialogScope<'_> {
+            fn drop(&mut self) {
+                if let Err(error) = self.app.set_activation_policy(ActivationPolicy::Accessory) {
+                    eprintln!("failed to restore Portus accessory activation policy: {error}");
+                }
+                if let Some(window) = self.app.get_webview_window(crate::ui::POPOVER_LABEL) {
+                    if let Err(error) = window.set_focus() {
+                        eprintln!("failed to restore Portus popover focus: {error}");
+                    }
+                }
+                self.app.state::<crate::ui::DialogGuard>().disarm();
+            }
+        }
+
+        app.state::<crate::ui::DialogGuard>().arm();
+        let _scope = FolderDialogScope { app: &app };
+        app.set_activation_policy(ActivationPolicy::Regular)
+            .map_err(|error| error.to_string())?;
+        let dialog_app = app.clone();
+
+        let folder = tauri::async_runtime::spawn_blocking(move || {
+            dialog_app.dialog().file().blocking_pick_folder()
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+
+        folder
+            .map(|folder| {
+                folder
+                    .into_path()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .map_err(|error| error.to_string())
+            })
+            .transpose()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(None)
+    }
 }
 
 #[tauri::command]

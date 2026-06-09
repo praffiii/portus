@@ -1,11 +1,10 @@
 <script lang="ts">
   import { isTauri } from "@tauri-apps/api/core";
-  import { open } from "@tauri-apps/plugin-dialog";
   import { ChevronDown, FolderOpen, Play, Save, Square } from "@lucide/svelte";
 
   import LogPeek from "$lib/components/LogPeek.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { Lifecycle, ManagedStatus, Project } from "$lib/bindings";
+  import { commands, type Lifecycle, type ManagedStatus, type Project } from "$lib/bindings";
   import type { ServiceStatus } from "$lib/snapshot-adapter";
 
   let {
@@ -80,10 +79,14 @@
     expanded = { ...expanded, [runId]: !expanded[runId] };
   }
 
-  async function chooseFolder() {
+  async function chooseFolder(previousCwd: string) {
     if (!isTauri()) return;
-    const folder = await open({ directory: true, multiple: false });
-    if (typeof folder !== "string") return;
+    const result = await commands.pickFolder();
+    if (result.status === "error" || result.data === null) {
+      cwd = previousCwd;
+      return;
+    }
+    const folder = result.data;
     customFolders = unique([...customFolders, folder]);
     cwd = folder;
   }
@@ -91,7 +94,7 @@
   async function handleFolderChange(event: Event) {
     const value = (event.currentTarget as HTMLSelectElement).value;
     if (value === CHOOSE_FOLDER) {
-      await chooseFolder();
+      await chooseFolder(cwd);
       return;
     }
     cwd = value;

@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "macos")]
 use std::sync::Mutex;
 #[cfg(target_os = "macos")]
 use std::time::Instant;
@@ -39,8 +41,12 @@ pub fn should_suppress_reopen(
         && elapsed_since_focus_hide.is_some_and(|elapsed| elapsed < TRAY_REOPEN_GUARD)
 }
 
+pub fn should_hide_on_focus_loss(dialog_open: bool) -> bool {
+    !dialog_open
+}
+
 #[cfg(target_os = "macos")]
-const POPOVER_LABEL: &str = "main";
+pub const POPOVER_LABEL: &str = "main";
 
 #[cfg(target_os = "macos")]
 #[derive(Default)]
@@ -67,12 +73,34 @@ impl FocusHideGuard {
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Default)]
+pub struct DialogGuard {
+    armed: AtomicBool,
+}
+
+#[cfg(target_os = "macos")]
+impl DialogGuard {
+    pub fn arm(&self) {
+        self.armed.store(true, Ordering::SeqCst);
+    }
+
+    pub fn disarm(&self) {
+        self.armed.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_armed(&self) -> bool {
+        self.armed.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::tray::TrayIconBuilder;
     use tauri::{ActivationPolicy, Manager};
 
     app.set_activation_policy(ActivationPolicy::Accessory);
     app.manage(FocusHideGuard::default());
+    app.manage(DialogGuard::default());
 
     let mut tray = TrayIconBuilder::new()
         .tooltip("Portus")
@@ -176,6 +204,9 @@ fn create_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
     let focus_window = window.clone();
     window.on_window_event(move |event| {
         if matches!(event, WindowEvent::Focused(false)) {
+            if !should_hide_on_focus_loss(app_handle.state::<DialogGuard>().is_armed()) {
+                return;
+            }
             app_handle.state::<FocusHideGuard>().arm();
             if let Err(error) = hide_popover(&app_handle, &focus_window) {
                 eprintln!("failed to hide Portus popover: {error}");
@@ -211,7 +242,10 @@ fn hide_popover(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri:
 mod tests {
     use std::time::Duration;
 
-    use super::{should_suppress_reopen, PopoverAction, PopoverState, TRAY_REOPEN_GUARD};
+    use super::{
+        should_hide_on_focus_loss, should_suppress_reopen, PopoverAction, PopoverState,
+        TRAY_REOPEN_GUARD,
+    };
 
     #[test]
     fn first_toggle_creates_the_popover() {
@@ -248,6 +282,12 @@ mod tests {
 
         assert_eq!(state.focus_changed(false), Some(PopoverAction::Hide));
         assert_eq!(state.focus_changed(true), None);
+    }
+
+    #[test]
+    fn focus_loss_does_not_hide_popover_while_dialog_is_open() {
+        assert!(!should_hide_on_focus_loss(true));
+        assert!(should_hide_on_focus_loss(false));
     }
 
     #[test]
