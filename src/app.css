@@ -20,15 +20,16 @@
   --font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", "SFMono-Regular", Consolas, monospace;
 
-  /* Liquid Glass — regular variant (chrome / navigation layer) */
-  --glass-blur: blur(40px) saturate(180%);
-  --glass-blur-chrome: blur(24px) saturate(165%);
-  --glass-fill: rgb(255 255 255 / 48%);
-  --glass-fill-chrome: rgb(255 255 255 / 62%);
-  --glass-fill-opaque: rgb(245 245 247 / 96%);
-  --glass-border: rgb(255 255 255 / 46%);
+  /* Opaque light surfaces — vibrancy cannot be decoupled from macOS appearance,
+     so we paint the popover ourselves for consistent legibility in both OS modes. */
+  --glass-blur: none;
+  --glass-blur-chrome: none;
+  --glass-fill: #f5f5f7;
+  --glass-fill-chrome: #ffffff;
+  --glass-fill-opaque: #f5f5f7;
+  --glass-border: rgb(0 0 0 / 8%);
   --glass-border-outer: rgb(0 0 0 / 10%);
-  --glass-specular: rgb(255 255 255 / 72%);
+  --glass-specular: rgb(255 255 255 / 80%);
   --glass-shadow:
     0 0 0 0.5px var(--glass-border-outer) inset,
     inset 0 1px 0 var(--glass-specular),
@@ -36,11 +37,10 @@
     0 4px 12px rgb(0 0 0 / 6%);
   --glass-radius: 14px;
 
-  /* Standard materials — content layer (lists, inputs, log peek) */
-  --app-bg: var(--glass-fill);
-  --surface: rgb(255 255 255 / 34%);
-  --surface-hi: rgb(255 255 255 / 52%);
-  --surface-pressed: rgb(255 255 255 / 38%);
+  --app-bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-hi: #f5f5f7;
+  --surface-pressed: #ebebed;
   --hairline: rgb(0 0 0 / 7%);
   --hairline-strong: rgb(0 0 0 / 11%);
 
@@ -101,19 +101,6 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  :root,
-  [data-theme="light"] {
-    --glass-blur: none;
-    --glass-blur-chrome: none;
-    --glass-fill: var(--glass-fill-opaque);
-    --glass-fill-chrome: var(--glass-fill-opaque);
-    --app-bg: var(--glass-fill-opaque);
-    --surface: rgb(255 255 255 / 92%);
-    --surface-hi: rgb(255 255 255 / 100%);
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
   [data-theme="dark"] {
     --surface: #161b22;
     --surface-hi: #21262d;
@@ -129,7 +116,7 @@ body {
   min-height: 520px;
   overflow: hidden;
   color: var(--text-primary);
-  background: transparent;
+  background: var(--app-bg);
   font-family: var(--font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;

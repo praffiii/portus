@@ -339,6 +339,7 @@
     border: 1px solid var(--glass-border);
     border-radius: var(--glass-radius);
     color: var(--text-primary);
+    background: var(--app-bg);
     box-shadow: var(--glass-shadow);
   }
 

@@ -30,7 +30,8 @@ pub fn builder() -> Builder<tauri::Wry> {
             crate::projects::commands::subscribe_logs,
             crate::projects::commands::unsubscribe_logs,
             crate::projects::commands::send_input,
-            crate::projects::commands::save_as_candidates
+            crate::projects::commands::save_as_candidates,
+            crate::ui::sync_popover_theme
         ])
         .events(collect_events![Snapshot])
         .typ::<DockerContainer>()
