@@ -95,8 +95,10 @@
     margin: 8px 0 0 24px;
     overflow: hidden;
     border: 1px solid var(--hairline);
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    border-radius: 8px;
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
   }
 
   .log-lines {
@@ -127,22 +129,38 @@
     min-width: 0;
     height: 26px;
     padding: 0 8px;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
     color: var(--text-primary);
-    background: transparent;
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
     font: inherit;
+  }
+
+  input:focus {
+    border-color: var(--hairline-strong);
+    outline: none;
   }
 
   button {
     height: 26px;
     padding: 0 10px;
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: 6px;
-    color: var(--accent);
-    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
     font-size: 11px;
     font-weight: 500;
+    cursor: pointer;
+  }
+
+  button:hover:not(:disabled) {
+    background: var(--surface-pressed);
   }
 
   button:disabled,

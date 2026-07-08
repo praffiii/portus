@@ -4,6 +4,7 @@
 
   import LogPeek from "$lib/components/LogPeek.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
+  import SectionHeader from "$lib/components/ui/SectionHeader.svelte";
   import { commands, type Lifecycle, type ManagedStatus, type Project } from "$lib/bindings";
   import type { ServiceStatus } from "$lib/snapshot-adapter";
 
@@ -29,6 +30,7 @@
   let customFolders: string[] = $state([]);
   let submitting = $state(false);
   let runError = $state("");
+  let formExpanded = $state(false);
   let expanded: Record<string, boolean> = $state({});
   let rowActions: Record<string, "stopping" | "saving" | { kind: "failed"; message: string }> =
     $state({});
@@ -41,13 +43,23 @@
     ...unique([...savedFolders, ...customFolders].filter((folder) => folder !== "~"))
   ]);
 
+  $effect(() => {
+    if (quickRuns.length > 0) return;
+    if (!submitting && !command.trim() && formExpanded) {
+      formExpanded = false;
+    }
+  });
+
   function unique(values: string[]): string[] {
     return Array.from(new Set(values));
   }
 
   export function focusCommand() {
-    commandInput?.focus();
-    commandInput?.select();
+    formExpanded = true;
+    queueMicrotask(() => {
+      commandInput?.focus();
+      commandInput?.select();
+    });
   }
 
   function badgeFor(lifecycle: Lifecycle): ServiceStatus {
@@ -145,44 +157,48 @@
   }
 </script>
 
-<section aria-labelledby="quick-run-heading">
-  <div class="section-heading">
-    <h2 id="quick-run-heading">Quick-run</h2>
-    <span>{quickRuns.length}</span>
-  </div>
+<section class="list-section" aria-labelledby="quick-run-heading">
+  <SectionHeader id="quick-run-heading" label="Quick-run" count={quickRuns.length} />
 
-  <form
-    class="quick-run-box"
-    onsubmit={(event) => {
-      event.preventDefault();
-      void submit();
-    }}
-  >
-    <input
-      bind:this={commandInput}
-      bind:value={command}
-      class="command-input"
-      type="text"
-      placeholder="Command"
-      spellcheck="false"
-      aria-label="Quick-run command"
-    />
-    <div class="folder-select">
-      <FolderOpen size={13} strokeWidth={1.9} aria-hidden="true" />
-      <select value={cwd} aria-label="Run in" onchange={handleFolderChange}>
-        {#each folderOptions as folder (folder)}
-          <option value={folder}>{shortFolder(folder)}</option>
-        {/each}
-        <option value={CHOOSE_FOLDER}>Choose folder...</option>
-      </select>
-    </div>
-    <button class="run-btn" type="submit" disabled={submitting}>
+  {#if !formExpanded}
+    <button class="collapsed-trigger list-row" type="button" onclick={() => (formExpanded = true)}>
       <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
-      <span>Run</span>
+      <span>Run a command…</span>
     </button>
-  </form>
-  {#if runError}
-    <p class="run-error">{runError}</p>
+  {:else}
+    <form
+      class="quick-run-box"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <input
+        bind:this={commandInput}
+        bind:value={command}
+        class="command-input"
+        type="text"
+        placeholder="Command"
+        spellcheck="false"
+        aria-label="Quick-run command"
+      />
+      <div class="folder-select">
+        <FolderOpen size={13} strokeWidth={1.9} aria-hidden="true" />
+        <select value={cwd} aria-label="Run in" onchange={handleFolderChange}>
+          {#each folderOptions as folder (folder)}
+            <option value={folder}>{shortFolder(folder)}</option>
+          {/each}
+          <option value={CHOOSE_FOLDER}>Choose folder...</option>
+        </select>
+      </div>
+      <button class="run-btn" type="submit" disabled={submitting}>
+        <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
+        <span>Run</span>
+      </button>
+    </form>
+    {#if runError}
+      <p class="run-error">{runError}</p>
+    {/if}
   {/if}
 
   {#if quickRuns.length > 0}
@@ -190,17 +206,17 @@
       {#each quickRuns as status (status.run_id)}
         {@const action = rowActions[status.run_id]}
         {@const output = recentLines(status)}
-        <li class="quick-run-row">
-          <div class="run-main">
+        <li class="list-row quick-run-row">
+          <div class="row-grid">
             <StatusBadge status={badgeFor(status.lifecycle)} />
             <div class="details">
-              <div class="primary">
-                <span class="command" title={status.launch_spec.command}>{status.launch_spec.command}</span>
+              <div class="row-primary">
+                <span class="row-title" title={status.launch_spec.command}>{status.launch_spec.command}</span>
               </div>
-              <div class="secondary" title={status.launch_spec.cwd}>
+              <div class="row-secondary" title={status.launch_spec.cwd}>
                 <span>{shortFolder(status.launch_spec.cwd)}</span>
                 <span class="sec-dot" aria-hidden="true">·</span>
-                <span class="lifecycle">{labelFor(status.lifecycle)}</span>
+                <span class="row-metric">{labelFor(status.lifecycle)}</span>
               </div>
             </div>
             <div class="row-actions">
@@ -239,7 +255,7 @@
             </div>
           </div>
           {#if isFailed(action)}
-            <p class="run-error row-error">{action.message}</p>
+            <p class="row-error">{action.message}</p>
           {/if}
           {#if output.length > 0}
             <pre class="recent-output" aria-label="Recent quick-run output">{output.join("\n")}</pre>
@@ -254,38 +270,34 @@
 </section>
 
 <style>
-  section {
-    border-bottom: 1px solid var(--hairline);
-  }
-
-  .section-heading {
-    position: sticky;
-    z-index: 2;
-    top: 0;
+  .collapsed-trigger {
     display: flex;
+    width: 100%;
     align-items: center;
-    justify-content: space-between;
-    height: 32px;
-    padding: 0 12px;
+    gap: 8px;
+    padding: var(--row-pad-y) var(--row-pad-x);
+    border: none;
     border-bottom: 1px solid var(--hairline);
     color: var(--text-muted);
-    background: var(--app-bg);
+    background: transparent;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
   }
 
-  h2,
-  .section-heading span {
-    margin: 0;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+  .collapsed-trigger:hover {
+    color: var(--text-primary);
+  }
+
+  .collapsed-trigger::before {
+    display: none;
   }
 
   .quick-run-box {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 112px auto;
     gap: 6px;
-    padding: 8px 12px;
+    padding: var(--row-pad-y) var(--row-pad-x);
     border-bottom: 1px solid var(--hairline);
   }
 
@@ -293,10 +305,13 @@
   select {
     min-width: 0;
     height: 28px;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
     color: var(--text-primary);
-    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
     font-family: var(--font-ui);
     font-size: 12px;
     outline: none;
@@ -312,7 +327,7 @@
 
   .command-input:focus,
   select:focus {
-    border-color: color-mix(in srgb, var(--accent) 52%, var(--hairline));
+    border-color: var(--hairline-strong);
   }
 
   .folder-select {
@@ -340,17 +355,20 @@
     align-items: center;
     gap: 5px;
     padding: 0 9px;
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: 6px;
-    color: var(--accent);
-    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
   }
 
   .run-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    background: var(--surface-pressed);
   }
 
   .run-btn:disabled {
@@ -359,169 +377,9 @@
   }
 
   .run-error {
-    margin: 7px 12px 8px;
+    margin: 7px var(--row-pad-x) 8px;
     color: var(--crashed);
     font-size: 11px;
     line-height: 1.35;
-  }
-
-  ul {
-    padding: 0;
-    margin: 0;
-    list-style: none;
-  }
-
-  li {
-    border-bottom: 1px solid var(--hairline);
-  }
-
-  li:last-child {
-    border-bottom: 0;
-  }
-
-  .quick-run-row {
-    min-height: 50px;
-    padding: 8px 12px;
-    transition: background-color 100ms ease;
-  }
-
-  .quick-run-row:hover {
-    background: var(--surface-hi);
-  }
-
-  .run-main {
-    display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .details {
-    min-width: 0;
-  }
-
-  .primary,
-  .secondary {
-    display: flex;
-    min-width: 0;
-    align-items: baseline;
-  }
-
-  .command {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .secondary {
-    gap: 4px;
-    margin-top: 3px;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: 11px;
-    line-height: 1.25;
-    white-space: nowrap;
-  }
-
-  .secondary span:first-child {
-    min-width: 20px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .lifecycle,
-  .sec-dot {
-    flex: 0 0 auto;
-    color: var(--text-muted);
-  }
-
-  .lifecycle {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .row-actions {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 4px;
-    opacity: 0;
-    transition: opacity 100ms ease;
-  }
-
-  .quick-run-row:hover .row-actions,
-  .quick-run-row:focus-within .row-actions {
-    opacity: 1;
-  }
-
-  .act-btn {
-    display: grid;
-    width: 26px;
-    height: 26px;
-    place-items: center;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
-    color: var(--text-muted);
-    background: transparent;
-    cursor: pointer;
-    transition:
-      color 100ms ease,
-      background 100ms ease,
-      border-color 100ms ease;
-  }
-
-  .act-btn.expanded :global(svg) {
-    transform: rotate(180deg);
-  }
-
-  .act-btn.save:hover {
-    border-color: color-mix(in srgb, var(--accent) 30%, var(--hairline));
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-
-  .act-btn.kill:hover {
-    border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
-    color: var(--crashed);
-    background: color-mix(in srgb, var(--crashed) 8%, transparent);
-  }
-
-  .act-btn:disabled {
-    opacity: 0.52;
-    cursor: default;
-  }
-
-  .row-error,
-  .recent-output {
-    margin: 8px 0 0 24px;
-  }
-
-  .recent-output {
-    max-height: 92px;
-    overflow: auto;
-    padding: 7px 8px;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    background: color-mix(in srgb, var(--surface) 72%, transparent);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.35;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .quick-run-row,
-    .row-actions,
-    .act-btn {
-      transition: none;
-    }
   }
 </style>

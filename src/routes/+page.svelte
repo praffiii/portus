@@ -8,6 +8,8 @@
   import PortList, { type PortActionState } from "$lib/components/PortList.svelte";
   import ProjectList, { type TaskActionState } from "$lib/components/ProjectList.svelte";
   import QuickRun from "$lib/components/QuickRun.svelte";
+  import SettingsPanel from "$lib/components/SettingsPanel.svelte";
+  import IconButton from "$lib/components/ui/IconButton.svelte";
   import { snapshotFixture } from "$lib/fixtures";
   import { containersToDockerRows, snapshotToPortRows, type PortRowView } from "$lib/snapshot-adapter";
 
@@ -19,6 +21,7 @@
   let portActionStates: Record<string, PortActionState> = $state({});
   let taskActions: Record<string, TaskActionState> = $state({});
   let quickRunComponent: QuickRun | undefined = $state();
+  let settingsOpen = $state(false);
   const managed = $derived(snapshot.managed);
   const ports = $derived(snapshotToPortRows(snapshot));
   const containers = $derived(containersToDockerRows(snapshot.docker.data.containers));
@@ -221,7 +224,12 @@
   }
 
   function focusQuickRun() {
+    settingsOpen = false;
     quickRunComponent?.focusCommand();
+  }
+
+  function toggleSettings() {
+    settingsOpen = !settingsOpen;
   }
 
   function taskKey(projectId: string, taskId: string): string {
@@ -249,164 +257,101 @@
   }
 </script>
 
-<main class="popover">
-  <header class="glance">
+<main class="popover glass-regular">
+  <header class="glance glass-chrome">
     <div class="brand">
       <Anchor class="brand-mark" size={18} strokeWidth={1.75} aria-hidden="true" />
-      <div class="identity">
-        <p class="product">Portus</p>
-        <p class="summary">
-          <span class="running">{runningCount} running</span>
-          <span class="sep" aria-hidden="true">·</span>
-          <span class="neutral">{waitingCount} waiting?</span>
-        </p>
-      </div>
+      <p class="summary">
+        <span class="running">{runningCount} running</span>
+        <span class="sep" aria-hidden="true">·</span>
+        <span class="neutral">{waitingCount} waiting?</span>
+      </p>
     </div>
     <div class="glance-actions">
-      <button class="icon-button" type="button" aria-label="Add folder" title="Add folder" onclick={addProjectFromFolder}>
+      <IconButton label="Add folder" title="Add folder" onclick={addProjectFromFolder}>
         <Plus size={15} strokeWidth={1.9} aria-hidden="true" />
-      </button>
-      <button class="icon-button muted" type="button" aria-label="Settings (unavailable)" title="Settings unavailable" disabled>
+      </IconButton>
+      <IconButton
+        label={settingsOpen ? "Close settings" : "Settings"}
+        title={settingsOpen ? "Close settings" : "Settings"}
+        active={settingsOpen}
+        onclick={toggleSettings}
+      >
         <Settings size={15} strokeWidth={1.8} aria-hidden="true" />
-      </button>
+      </IconButton>
     </div>
   </header>
 
   <div class="scroll-body">
-    {#if isEmpty}
-      <section class="empty-state" aria-labelledby="empty-heading">
-        <div class="empty-icon" aria-hidden="true">
-          <Anchor size={18} strokeWidth={1.75} />
-        </div>
-        <div class="empty-copy">
-          <h2 id="empty-heading">Nothing running</h2>
-          <p>Open a folder or run a one-off command.</p>
-        </div>
-        <div class="empty-actions">
-          <button class="empty-action primary" type="button" onclick={addProjectFromFolder}>
-            <FolderOpen size={13} strokeWidth={1.9} aria-hidden="true" />
-            <span>Open folder</span>
-          </button>
-          <button class="empty-action" type="button" onclick={focusQuickRun}>
-            <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
-            <span>Quick-run</span>
-          </button>
-        </div>
-      </section>
-    {/if}
-    <QuickRun
-      bind:this={quickRunComponent}
-      {projects}
-      {managed}
-      onRun={startQuickRun}
-      onStop={stopQuickRun}
-      onSave={saveQuickRun}
-    />
-    {#if !isEmpty}
-      <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
-      <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
-      <DockerList {containers} />
+    {#if settingsOpen}
+      <SettingsPanel />
+    {:else}
+      {#if isEmpty}
+        <section class="empty-state" aria-labelledby="empty-heading">
+          <div class="empty-icon" aria-hidden="true">
+            <Anchor size={18} strokeWidth={1.75} />
+          </div>
+          <div class="empty-copy">
+            <h2 id="empty-heading">Nothing running</h2>
+            <p>Open a folder or run a one-off command.</p>
+          </div>
+          <div class="empty-actions">
+            <button class="empty-action primary" type="button" onclick={addProjectFromFolder}>
+              <FolderOpen size={13} strokeWidth={1.9} aria-hidden="true" />
+              <span>Open folder</span>
+            </button>
+            <button class="empty-action" type="button" onclick={focusQuickRun}>
+              <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
+              <span>Quick-run</span>
+            </button>
+          </div>
+        </section>
+      {/if}
+      <QuickRun
+        bind:this={quickRunComponent}
+        {projects}
+        {managed}
+        onRun={startQuickRun}
+        onStop={stopQuickRun}
+        onSave={saveQuickRun}
+      />
+      {#if !isEmpty}
+        <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
+        <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
+        <DockerList {containers} />
+      {/if}
     {/if}
   </div>
 
-  <footer class="footer">
-    <div class="footer-left">
-      <button class="footer-btn" type="button" title="Add folder" onclick={addProjectFromFolder}>
-        <Plus size={12} strokeWidth={2} aria-hidden="true" />
-        <span>Add folder</span>
-      </button>
-      <button class="footer-btn" type="button" title="Settings (unavailable)" disabled>
-        <Settings size={12} strokeWidth={1.8} aria-hidden="true" />
-        <span>Settings</span>
-      </button>
-    </div>
+  <footer class="footer glass-chrome">
     <kbd class="kbd">⌥⌘P</kbd>
   </footer>
 </main>
 
 <style>
-  @font-face {
-    font-family: "Geist";
-    src: url("/fonts/Geist-Variable.woff2") format("woff2");
-    font-style: normal;
-    font-weight: 100 900;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: "Geist Mono";
-    src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
-    font-style: normal;
-    font-weight: 100 900;
-    font-display: swap;
-  }
-
-  :global(html),
-  :global(body) {
-    margin: 0;
-    width: 100%;
-    min-width: 380px;
-    height: 100%;
-    min-height: 520px;
-    overflow: hidden;
-    color: var(--text-primary);
-    background: transparent;
-    font-family: var(--font-ui);
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  :global(:root) {
-    --font-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --font-mono: "Geist Mono", "SFMono-Regular", Consolas, monospace;
-    --app-bg: rgb(251 251 253 / 72%);
-    --surface: rgb(255 255 255 / 70%);
-    --surface-hi: rgb(255 255 255 / 92%);
-    --hairline: #e7e7ea;
-    --text-primary: #1a1a1e;
-    --text-secondary: #5c5c63;
-    --text-muted: #8a8a92;
-    --accent: #0f9d63;
-    --running: #12a266;
-    --waiting: #b07a2e;
-    --stopped: #a3a3ab;
-    --crashed: #cf5a4c;
-    --popover-shadow: 0 0 0 0.5px rgb(0 0 0 / 4%) inset, 0 16px 44px rgb(0 0 0 / 14%);
-  }
-
-  :global(*) {
-    box-sizing: border-box;
-  }
-
-  :global(button) {
-    font: inherit;
-  }
-
   .popover {
     display: flex;
     width: 380px;
     height: 520px;
     flex-direction: column;
     overflow: hidden;
-    border: 1px solid var(--hairline);
-    border-radius: 12px;
+    isolation: isolate;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--glass-radius);
     color: var(--text-primary);
-    background: var(--app-bg);
-    box-shadow: var(--popover-shadow);
+    box-shadow: var(--glass-shadow);
   }
 
   .glance {
     position: relative;
     z-index: 3;
     display: flex;
-    height: 56px;
-    flex: 0 0 56px;
+    height: 48px;
+    flex: 0 0 48px;
     align-items: center;
     justify-content: space-between;
-    padding: 0 12px;
+    padding: 0 var(--row-pad-x);
     border-bottom: 1px solid var(--hairline);
-    background: var(--surface);
   }
 
   .brand {
@@ -422,28 +367,8 @@
     opacity: 0.5;
   }
 
-  .product,
   .summary {
     margin: 0;
-  }
-
-  .identity {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .product {
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .summary {
     display: flex;
     align-items: center;
     gap: 5px;
@@ -465,34 +390,11 @@
     color: var(--text-primary);
   }
 
-  .icon-button {
-    display: grid;
-    width: 28px;
-    height: 28px;
-    flex: 0 0 28px;
-    place-items: center;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    color: var(--text-muted);
-    background: transparent;
-    cursor: pointer;
-    opacity: 0.85;
-    transition:
-      opacity 100ms ease,
-      background 100ms ease;
-  }
-
   .glance-actions {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
     gap: 4px;
-  }
-
-  .icon-button.muted {
-    cursor: default;
-    opacity: 0.5;
   }
 
   .scroll-body {
@@ -530,10 +432,13 @@
     width: 32px;
     height: 32px;
     place-items: center;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
     color: var(--text-muted);
-    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
   }
 
   .empty-copy {
@@ -573,100 +478,57 @@
     align-items: center;
     gap: 5px;
     padding: 0 9px;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
     color: var(--text-muted);
-    background: transparent;
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition:
-      color 100ms ease,
-      background 100ms ease,
-      border-color 100ms ease;
+      color var(--motion-fast),
+      background var(--motion-fast),
+      border-color var(--motion-fast);
   }
 
   .empty-action.primary,
   .empty-action:hover {
-    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-    color: var(--accent);
+    border-color: var(--hairline-strong);
+    color: var(--text-primary);
   }
 
   .empty-action:hover {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-
-  .icon-button:hover:not(:disabled) {
-    opacity: 1;
-    background: rgb(127 127 127 / 12%);
+    background: var(--surface-pressed);
   }
 
   .footer {
     display: flex;
-    height: 36px;
-    flex: 0 0 36px;
+    height: 28px;
+    flex: 0 0 28px;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 12px;
+    justify-content: flex-end;
+    padding: 0 var(--row-pad-x);
     border-top: 1px solid var(--hairline);
-    background: var(--surface);
-  }
-
-  .footer-left {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .footer-btn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    font-family: var(--font-ui);
-    font-size: 12px;
-    cursor: default;
-  }
-
-  .footer-btn:disabled {
-    opacity: 0.65;
   }
 
   .kbd {
     padding: 2px 6px;
-    border: 1px solid var(--hairline);
-    border-radius: 4px;
-    background: rgb(127 127 127 / 10%);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    background: var(--surface);
+    backdrop-filter: var(--glass-blur-chrome);
+    -webkit-backdrop-filter: var(--glass-blur-chrome);
+    box-shadow: inset 0 1px 0 var(--glass-specular);
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: 10px;
     user-select: none;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :global(:root) {
-      --app-bg: rgb(22 22 24 / 72%);
-      --surface: rgb(28 28 31 / 70%);
-      --surface-hi: #212125;
-      --hairline: #2a2a2e;
-      --text-primary: #ededee;
-      --text-secondary: #8c8c93;
-      --text-muted: #5c5c63;
-      --accent: #45ce93;
-      --running: #45ce93;
-      --waiting: #d2a24c;
-      --stopped: #56565c;
-      --crashed: #d97066;
-      --popover-shadow: 0 0 0 0.5px rgb(255 255 255 / 3.5%) inset,
-        0 16px 44px rgb(0 0 0 / 55%);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .icon-button,
     .empty-action {
       transition: none;
     }
