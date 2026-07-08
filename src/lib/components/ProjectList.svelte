@@ -6,6 +6,7 @@
   import { ChevronDown, Play, Square } from "@lucide/svelte";
   import LogPeek from "$lib/components/LogPeek.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
+  import SectionHeader from "$lib/components/ui/SectionHeader.svelte";
   import type { Lifecycle, ManagedStatus, Project } from "$lib/bindings";
   import type { ServiceStatus } from "$lib/snapshot-adapter";
 
@@ -25,6 +26,7 @@
 
   const OUTPUT_LIMIT = 8;
   let expanded: Record<string, boolean> = $state({});
+  let projectExpanded: Record<string, boolean> = $state({});
 
   function taskKey(projectId: string, taskId: string): string {
     return `${projectId}:${taskId}`;
@@ -59,226 +61,253 @@
     return status.recent_output.slice(-OUTPUT_LIMIT);
   }
 
+  function isActiveLifecycle(lifecycle: Lifecycle): boolean {
+    return (
+      lifecycle === "running" ||
+      lifecycle === "running_no_port" ||
+      lifecycle === "waiting" ||
+      lifecycle === "starting"
+    );
+  }
+
+  function runningCount(project: Project): number {
+    return project.tasks.filter((task) => {
+      const status = statusFor(project.id, task.id);
+      return status && isActiveLifecycle(status.lifecycle);
+    }).length;
+  }
+
+  function shouldExpandProject(project: Project): boolean {
+    return runningCount(project) > 0;
+  }
+
+  function isProjectExpanded(projectId: string, project: Project): boolean {
+    if (projectId in projectExpanded) return projectExpanded[projectId];
+    return shouldExpandProject(project);
+  }
+
+  function folderBasename(folder: string): string {
+    return folder.split("/").filter(Boolean).pop() ?? folder;
+  }
+
   function toggle(projectId: string, taskId: string) {
     const key = taskKey(projectId, taskId);
     expanded = { ...expanded, [key]: !expanded[key] };
   }
+
+  function toggleProject(projectId: string, project: Project) {
+    const next = !isProjectExpanded(projectId, project);
+    projectExpanded = { ...projectExpanded, [projectId]: next };
+  }
 </script>
 
-<section aria-labelledby="projects-heading">
-  <div class="section-heading">
-    <h2 id="projects-heading">Projects</h2>
-    <span>{projects.length}</span>
-  </div>
+{#if projects.length > 0}
+  <section class="list-section" aria-labelledby="projects-heading">
+    <SectionHeader id="projects-heading" label="Projects" count={projects.length} />
 
-  <ul>
-    {#each projects as project (project.id)}
-      <li class="project-row">
-        <div class="project-name" title={project.folder}>{project.name}</div>
-      </li>
-      {#each project.tasks as task (task.id)}
-        {@const status = statusFor(project.id, task.id)}
-        {@const action = taskActions[taskKey(project.id, task.id)]}
-        {@const output = recentLines(status)}
-        {@const key = taskKey(project.id, task.id)}
-        <li class="task-row" class:has-output={output.length > 0 || isFailed(action)}>
-          <div class="task-main">
-            <StatusBadge status={status ? badgeFor(status.lifecycle) : "stopped"} />
-            <div class="details">
-              <div class="primary">
-                <span class="task-name" title={task.command}>{task.name}</span>
-                {#if status}
-                  <span class="source">Portus-started</span>
-                {/if}
-              </div>
-              <div class="secondary" title={task.command}>
-                <span class="command">{task.command}</span>
-                {#if status}
-                  <span class="sec-dot" aria-hidden="true">·</span>
-                  <span class="lifecycle">{labelFor(status.lifecycle)}</span>
-                {:else if action === "starting"}
-                  <span class="sec-dot" aria-hidden="true">·</span>
-                  <span class="lifecycle">starting</span>
-                {/if}
-              </div>
+    <ul>
+      {#each projects as project (project.id)}
+        {@const activeCount = runningCount(project)}
+        {@const open = isProjectExpanded(project.id, project)}
+        <li class="project-group">
+          <button
+            class="project-header list-row"
+            type="button"
+            aria-expanded={open}
+            onclick={() => toggleProject(project.id, project)}
+          >
+            <span class="project-chevron" class:expanded={open}>
+              <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
+            </span>
+            <div class="project-meta">
+              <span class="row-title" title={project.folder}>{project.name}</span>
+              <span class="folder-basename">{folderBasename(project.folder)}</span>
             </div>
-            <div class="row-actions">
-              {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
-                <button
-                  class="act-btn"
-                  class:expanded={expanded[key]}
-                  type="button"
-                  title={`${expanded[key] ? "Hide" : "Show"} output for ${task.name}`}
-                  aria-label={`${expanded[key] ? "Hide" : "Show"} output for ${task.name}`}
-                  onclick={() => toggle(project.id, task.id)}
-                >
-                  <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
-                </button>
-              {/if}
-              {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
-                <button
-                  class="act-btn kill"
-                  type="button"
-                  title={`Stop ${task.name}`}
-                  aria-label={`Stop ${task.name}`}
-                  disabled={action === "stopping"}
-                  onclick={() => onStop(status.run_id, project.id, task.id)}
-                >
-                  <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
-                </button>
-              {:else}
-                <button
-                  class="act-btn start"
-                  type="button"
-                  title={`Start ${task.name}`}
-                  aria-label={`Start ${task.name}`}
-                  disabled={action === "starting"}
-                  onclick={() => onStart(project.id, task.id)}
-                >
-                  <Play size={13} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
-                </button>
-              {/if}
-            </div>
-          </div>
-          {#if isFailed(action)}
-            <p class="task-error">{action.message}</p>
-          {/if}
-          {#if output.length > 0}
-            <pre class="recent-output" aria-label={`Recent output for ${task.name}`}>{output.join("\n")}</pre>
-          {/if}
-          {#if status && expanded[key] && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
-            <LogPeek
-              runId={status.run_id}
-              projectId={project.id}
-              taskId={task.id}
-              readonly={false}
-              terminal={false}
-            />
+            {#if activeCount > 0}
+              <span class="task-badge">{activeCount}/{project.tasks.length}</span>
+            {:else}
+              <span class="task-badge muted">{project.tasks.length}</span>
+            {/if}
+          </button>
+
+          {#if open}
+            <ul class="task-list">
+              {#each project.tasks as task (task.id)}
+                {@const status = statusFor(project.id, task.id)}
+                {@const action = taskActions[taskKey(project.id, task.id)]}
+                {@const output = recentLines(status)}
+                {@const key = taskKey(project.id, task.id)}
+                <li class="list-row task-row">
+                  <div class="row-grid">
+                    <StatusBadge status={status ? badgeFor(status.lifecycle) : "stopped"} />
+                    <div class="details">
+                      <div class="row-primary">
+                        <span class="row-title" title={task.command}>{task.name}</span>
+                        {#if status}
+                          <span class="row-source">Portus-started</span>
+                        {/if}
+                      </div>
+                      <div class="row-secondary" title={task.command}>
+                        <span class="command">{task.command}</span>
+                        {#if status}
+                          <span class="sec-dot" aria-hidden="true">·</span>
+                          <span class="row-metric">{labelFor(status.lifecycle)}</span>
+                        {:else if action === "starting"}
+                          <span class="sec-dot" aria-hidden="true">·</span>
+                          <span class="row-metric">starting</span>
+                        {/if}
+                      </div>
+                    </div>
+                    <div class="row-actions">
+                      {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                        <button
+                          class="act-btn"
+                          class:expanded={expanded[key]}
+                          type="button"
+                          title={`${expanded[key] ? "Hide" : "Show"} output for ${task.name}`}
+                          aria-label={`${expanded[key] ? "Hide" : "Show"} output for ${task.name}`}
+                          onclick={() => toggle(project.id, task.id)}
+                        >
+                          <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
+                        </button>
+                      {/if}
+                      {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                        <button
+                          class="act-btn kill"
+                          type="button"
+                          title={`Stop ${task.name}`}
+                          aria-label={`Stop ${task.name}`}
+                          disabled={action === "stopping"}
+                          onclick={() => onStop(status.run_id, project.id, task.id)}
+                        >
+                          <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
+                        </button>
+                      {:else}
+                        <button
+                          class="act-btn start"
+                          type="button"
+                          title={`Start ${task.name}`}
+                          aria-label={`Start ${task.name}`}
+                          disabled={action === "starting"}
+                          onclick={() => onStart(project.id, task.id)}
+                        >
+                          <Play size={13} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                  {#if isFailed(action)}
+                    <p class="row-error">{action.message}</p>
+                  {/if}
+                  {#if output.length > 0}
+                    <pre class="recent-output" aria-label={`Recent output for ${task.name}`}>{output.join("\n")}</pre>
+                  {/if}
+                  {#if status && expanded[key] && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                    <LogPeek
+                      runId={status.run_id}
+                      projectId={project.id}
+                      taskId={task.id}
+                      readonly={false}
+                      terminal={false}
+                    />
+                  {/if}
+                </li>
+              {/each}
+            </ul>
           {/if}
         </li>
       {/each}
-    {/each}
-  </ul>
-</section>
+    </ul>
+  </section>
+{/if}
 
 <style>
-  section {
+  .project-group {
     border-bottom: 1px solid var(--hairline);
   }
 
-  .section-heading {
-    position: sticky;
-    z-index: 2;
-    top: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 32px;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--hairline);
-    color: var(--text-muted);
-    background: var(--app-bg);
-  }
-
-  h2,
-  .section-heading span {
-    margin: 0;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  ul {
-    padding: 0;
-    margin: 0;
-    list-style: none;
-  }
-
-  li {
-    border-bottom: 1px solid var(--hairline);
-  }
-
-  li:last-child {
+  .project-group:last-child {
     border-bottom: 0;
   }
 
-  .project-row {
-    display: flex;
-    min-height: 30px;
-    align-items: center;
-    padding: 6px 12px;
-    color: var(--text-primary);
-    background: color-mix(in srgb, var(--surface) 66%, transparent);
-  }
-
-  .project-name {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 13px;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .task-row {
-    min-height: 50px;
-    padding: 8px 12px;
-    transition: background-color 100ms ease;
-  }
-
-  .task-main {
+  .project-header {
     display: grid;
+    width: 100%;
     grid-template-columns: 16px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
+    padding: var(--row-pad-y) var(--row-pad-x);
+    border: none;
+    border-bottom: 0;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
   }
 
-  .task-row:hover {
+  .project-header::before {
+    display: none;
+  }
+
+  .project-header:hover {
     background: var(--surface-hi);
   }
 
-  .details {
-    min-width: 0;
+  .project-chevron {
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
+    transition: transform var(--motion-fast);
   }
 
-  .primary,
-  .secondary {
+  .project-chevron.expanded {
+    transform: rotate(180deg);
+  }
+
+  .project-meta {
     display: flex;
     min-width: 0;
-    align-items: baseline;
+    flex-direction: column;
+    gap: 2px;
   }
 
-  .primary {
-    gap: 8px;
-  }
-
-  .task-name {
-    min-width: 0;
+  .folder-basename {
     overflow: hidden;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 500;
+    color: var(--text-muted);
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .source {
-    flex: 0 0 auto;
-    color: var(--text-muted);
-    font-size: 11px;
-    font-weight: 400;
-    white-space: nowrap;
+  .task-badge {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--accent-subtle);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
   }
 
-  .secondary {
-    gap: 4px;
-    margin-top: 3px;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: 11px;
-    line-height: 1.25;
-    white-space: nowrap;
+  .task-badge.muted {
+    color: var(--text-muted);
+  }
+
+  .task-list {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+    border-left: 2px solid var(--hairline);
+    margin-left: 20px;
+  }
+
+  .task-row {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .task-row:last-child {
+    border-bottom: 0;
   }
 
   .command {
@@ -287,107 +316,8 @@
     text-overflow: ellipsis;
   }
 
-  .lifecycle,
-  .sec-dot {
-    flex: 0 0 auto;
-    color: var(--text-muted);
-  }
-
-  .lifecycle {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .row-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 100ms ease;
-  }
-
-  .task-row:hover .row-actions,
-  .task-row:focus-within .row-actions {
-    opacity: 1;
-  }
-
-  .act-btn {
-    display: grid;
-    width: 26px;
-    height: 26px;
-    place-items: center;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition:
-      color 100ms ease,
-      background 100ms ease,
-      border-color 100ms ease;
-  }
-
-  .act-btn.start {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-  }
-
-  .act-btn.expanded :global(svg) {
-    transform: rotate(180deg);
-  }
-
-  .act-btn.start:hover {
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-
-  .act-btn.kill:hover {
-    border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
-    color: var(--crashed);
-    background: color-mix(in srgb, var(--crashed) 8%, transparent);
-  }
-
-  .act-btn:disabled {
-    opacity: 0.52;
-    cursor: default;
-  }
-
-  .act-btn:disabled:hover {
-    background: transparent;
-  }
-
-  .task-error,
-  .recent-output {
-    margin: 8px 0 0 24px;
-  }
-
-  .task-error {
-    color: var(--crashed);
-    font-size: 11px;
-    line-height: 1.35;
-  }
-
-  .recent-output {
-    max-height: 92px;
-    overflow: auto;
-    padding: 7px 8px;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    background: color-mix(in srgb, var(--surface) 72%, transparent);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.35;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .task-row,
-    .row-actions,
-    .act-btn {
+    .project-chevron {
       transition: none;
     }
   }

@@ -1,9 +1,18 @@
 <script lang="ts">
   import { FolderPlus, LockKeyhole, Square } from "@lucide/svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
-  import type { PortRowView } from "$lib/snapshot-adapter";
+  import FilterChip from "$lib/components/ui/FilterChip.svelte";
+  import SectionHeader from "$lib/components/ui/SectionHeader.svelte";
+  import {
+    partitionPorts,
+    sortPortRows,
+    type PortFilterMode,
+    type PortRowView
+  } from "$lib/snapshot-adapter";
 
   export type PortActionState = "idle" | "killing" | "needs_privilege" | "failed";
+
+  const FILTER_STORAGE_KEY = "portus:port-filter";
 
   let {
     ports,
@@ -17,6 +26,30 @@
     onSaveAs?: (port: PortRowView) => void;
   } = $props();
 
+  function readFilterMode(): PortFilterMode {
+    if (typeof localStorage === "undefined") return "relevant";
+    const stored = localStorage.getItem(FILTER_STORAGE_KEY);
+    return stored === "all" ? "all" : "relevant";
+  }
+
+  let filterMode = $state<PortFilterMode>(readFilterMode());
+  let systemExpanded = $state(false);
+
+  const partitioned = $derived(partitionPorts(ports));
+  const visiblePorts = $derived(
+    filterMode === "all" ? sortPortRows(ports) : partitioned.relevant
+  );
+  const systemPorts = $derived(partitioned.system);
+  const showSystemGroup = $derived(filterMode === "relevant" && systemPorts.length > 0);
+
+  function setFilterMode(mode: PortFilterMode) {
+    filterMode = mode;
+    systemExpanded = false;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(FILTER_STORAGE_KEY, mode);
+    }
+  }
+
   function actionLabel(item: PortRowView, state: PortActionState) {
     if (state === "needs_privilege") return `${item.process} needs elevated privileges`;
     if (state === "killing") return `Killing ${item.process}`;
@@ -25,37 +58,47 @@
   }
 </script>
 
-<section aria-labelledby="ports-heading">
-  <div class="section-heading">
-    <h2 id="ports-heading">Ports</h2>
-    <span>{ports.length}</span>
-  </div>
+{#snippet filterChips()}
+  <FilterChip label="Relevant" active={filterMode === "relevant"} onclick={() => setFilterMode("relevant")} />
+  <FilterChip label="All" active={filterMode === "all"} onclick={() => setFilterMode("all")} />
+{/snippet}
+
+<section class="list-section" aria-labelledby="ports-heading">
+  <SectionHeader
+    id="ports-heading"
+    label="Ports"
+    count={ports.length}
+    trailing={filterChips}
+  />
 
   <ul>
-    {#each ports as item (item.key)}
+    {#each visiblePorts as item (item.key)}
       {@const actionState = actionStates[item.key] ?? "idle"}
-      <li class:has-error={actionState === "failed" || actionState === "needs_privilege"}>
-        <div class="row-main">
+      <li class="list-row" class:has-error={actionState === "failed" || actionState === "needs_privilege"}>
+        <div class="row-grid with-port">
           <StatusBadge status={item.status} />
           <span class="port">:{item.port}</span>
           <div class="details">
-            <div class="primary">
-              <span class="process" title={item.process}>{item.process}</span>
-              <span class="source" class:source-orphan={item.source === "orphan?"}>{item.source}</span>
+            <div class="row-primary">
+              <span class="row-title" title={item.process}>{item.process}</span>
+              <span class="row-source" class:row-source-orphan={item.source === "orphan?"}>{item.source}</span>
             </div>
-            <div class="secondary" title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent.toFixed(1)}% CPU · ${item.memoryMb} MB`}>
+            <div
+              class="row-secondary"
+              title={`${item.cwd} · PID ${item.pid} · ${item.cpuPercent.toFixed(1)}% CPU · ${item.memoryMb} MB`}
+            >
               <span class="cwd">{item.cwd}</span>
               <span class="sec-dot" aria-hidden="true">·</span>
-              <span class="metric">{item.pid}</span>
+              <span class="row-metric">{item.pid}</span>
               <span class="sec-dot" aria-hidden="true">·</span>
-              <span class="metric">{item.cpuPercent.toFixed(1)}%</span>
+              <span class="row-metric">{item.cpuPercent.toFixed(1)}%</span>
               <span class="sec-dot" aria-hidden="true">·</span>
-              <span class="metric">{item.memoryMb} MB</span>
+              <span class="row-metric">{item.memoryMb} MB</span>
             </div>
           </div>
           <div class="row-actions">
             <button
-              class="act-btn save-as"
+              class="act-btn save"
               type="button"
               title={`Save ${item.process} as project`}
               aria-label={`Save ${item.process} as project`}
@@ -83,127 +126,88 @@
           </div>
         </div>
         {#if actionState === "failed"}
-          <p class="port-error">Stop failed. The port is still listening.</p>
+          <p class="row-error port-error-offset">Stop failed. The port is still listening.</p>
         {:else if actionState === "needs_privilege"}
-          <p class="port-error warning">Needs elevated privileges to stop this process.</p>
+          <p class="row-error warning port-error-offset">Needs elevated privileges to stop this process.</p>
         {/if}
       </li>
     {/each}
+
+    {#if showSystemGroup}
+      <li class="system-group">
+        <button
+          class="system-group-trigger list-row"
+          type="button"
+          aria-expanded={systemExpanded}
+          onclick={() => (systemExpanded = !systemExpanded)}
+        >
+          <span class="system-glyph" aria-hidden="true">○</span>
+          <span class="system-label">System ports</span>
+          <span class="sec-dot" aria-hidden="true">·</span>
+          <span class="row-metric">{systemPorts.length}</span>
+          <span class="system-chevron" class:expanded={systemExpanded} aria-hidden="true">▾</span>
+        </button>
+        {#if systemExpanded}
+          <ul class="system-ports">
+            {#each systemPorts as item (item.key)}
+              {@const actionState = actionStates[item.key] ?? "idle"}
+              <li class="list-row system-port-row">
+                <div class="row-grid with-port">
+                  <StatusBadge status={item.status} />
+                  <span class="port">:{item.port}</span>
+                  <div class="details">
+                    <div class="row-primary">
+                      <span class="row-title" title={item.process}>{item.process}</span>
+                      <span class="row-source">{item.source}</span>
+                    </div>
+                    <div class="row-secondary" title={`PID ${item.pid}`}>
+                      <span class="row-metric">{item.pid}</span>
+                    </div>
+                  </div>
+                  <div class="row-actions">
+                    <button
+                      class:needs-privilege={actionState === "needs_privilege"}
+                      class:failed={actionState === "failed"}
+                      class="act-btn kill"
+                      type="button"
+                      title={actionLabel(item, actionState)}
+                      aria-label={actionLabel(item, actionState)}
+                      disabled={item.pid === 0 || actionState === "killing" || actionState === "needs_privilege"}
+                      onclick={() => onKill(item)}
+                    >
+                      {#if actionState === "needs_privilege"}
+                        <LockKeyhole size={13} strokeWidth={1.9} aria-hidden="true" />
+                      {:else}
+                        <Square size={10} strokeWidth={2.4} fill="currentColor" aria-hidden="true" />
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </li>
+    {/if}
   </ul>
 </section>
 
 <style>
-  section {
-    border-bottom: 1px solid var(--hairline);
+  .port {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .section-heading {
-    position: sticky;
-    z-index: 2;
-    top: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 32px;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--hairline);
-    color: var(--text-muted);
-    background: var(--app-bg);
-  }
-
-  h2,
-  .section-heading span {
-    margin: 0;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  ul {
-    padding: 0;
-    margin: 0;
-    list-style: none;
-  }
-
-  li {
-    min-height: 54px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--hairline);
-    outline: none;
-    transition: background-color 100ms ease;
-  }
-
-  .row-main {
-    display: grid;
-    grid-template-columns: 16px 52px minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
-  }
-
-  li:last-child {
-    border-bottom: 0;
-  }
-
-  li:hover {
-    background: var(--surface-hi);
-  }
-
-  .sec-dot {
-    flex: 0 0 auto;
-    color: var(--text-muted);
-    opacity: 0.7;
-    user-select: none;
-  }
-
-  .row-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 100ms ease;
-  }
-
-  li:hover .row-actions,
-  li:focus-within .row-actions {
-    opacity: 1;
-  }
-
-  .act-btn {
-    display: grid;
-    width: 26px;
-    height: 26px;
-    place-items: center;
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: default;
-    transition:
-      color 100ms ease,
-      background 100ms ease,
-      border-color 100ms ease;
-  }
-
-  .act-btn:not(:disabled) {
-    cursor: pointer;
-  }
-
-  .act-btn:not(:disabled):hover {
-    border-color: color-mix(in srgb, var(--crashed) 42%, var(--hairline));
-    color: var(--crashed);
-    background: color-mix(in srgb, var(--crashed) 8%, transparent);
-  }
-
-  .act-btn.save-as:not(:disabled):hover {
-    border-color: color-mix(in srgb, var(--accent) 32%, var(--hairline));
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-
-  .act-btn:disabled {
-    opacity: 0.72;
+  .cwd {
+    min-width: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .act-btn.needs-privilege {
@@ -214,94 +218,68 @@
     color: var(--crashed);
   }
 
-  .port,
-  .metric {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
+  .port-error-offset {
+    margin-left: 76px;
   }
 
-  .port {
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .details {
-    min-width: 0;
-  }
-
-  .primary {
-    display: flex;
-    min-width: 0;
+  .system-group-trigger {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 16px auto auto auto 1fr auto;
+    gap: 6px;
     align-items: center;
-    gap: 7px;
+    padding: var(--row-pad-y) var(--row-pad-x);
+    border: none;
+    color: var(--text-muted);
+    background: transparent;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
   }
 
-  .process {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: 13px;
+  .system-group-trigger::before {
+    display: none;
+  }
+
+  .system-group-trigger:hover {
+    color: var(--text-secondary);
+    background: var(--surface-hi);
+  }
+
+  .system-glyph {
+    color: var(--stopped);
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .system-label {
     font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  /* Source tags are best-effort hints, not ground truth — so they stay quiet and uniform. */
-  .source {
-    flex: 0 0 auto;
+  .system-chevron {
+    justify-self: end;
     color: var(--text-muted);
     font-size: 11px;
-    font-weight: 400;
-    white-space: nowrap;
+    transition: transform var(--motion-fast);
   }
 
-  .source-orphan {
-    font-style: italic;
+  .system-chevron.expanded {
+    transform: rotate(180deg);
   }
 
-  .secondary {
-    display: flex;
-    min-width: 0;
-    gap: 4px;
-    margin-top: 3px;
-    overflow: hidden;
-    color: var(--text-secondary);
-    font-size: 11px;
-    line-height: 1.25;
-    white-space: nowrap;
+  .system-ports {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+    border-top: 1px solid var(--hairline);
   }
 
-  .cwd {
-    min-width: 20px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .metric {
-    flex: 0 0 auto;
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .port-error {
-    margin: 8px 0 0 76px;
-    color: var(--crashed);
-    font-size: 11px;
-    line-height: 1.35;
-  }
-
-  .port-error.warning {
-    color: var(--waiting);
+  .system-port-row {
+    padding-left: calc(var(--row-pad-x) + 8px);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    li,
-    .row-actions,
-    .act-btn {
+    .system-chevron {
       transition: none;
     }
   }

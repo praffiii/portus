@@ -45,6 +45,38 @@ export type PortRowView = ReturnType<typeof snapshotToPortRows>[number];
 export type DockerRowView = ReturnType<typeof containersToDockerRows>[number];
 export type PortSource = PortRowView["source"];
 
+export type PortFilterMode = "relevant" | "all";
+
+const sourcePriority: Record<PortSource, number> = {
+  "from IDE": 0,
+  "from Terminal": 1,
+  "orphan?": 2,
+  system: 3
+};
+
+export function sortPortRows(ports: PortRowView[]): PortRowView[] {
+  return [...ports].sort((left, right) => {
+    const bySource = sourcePriority[left.source] - sourcePriority[right.source];
+    if (bySource !== 0) return bySource;
+    return left.port - right.port;
+  });
+}
+
+export function partitionPorts(ports: PortRowView[]) {
+  const relevant: PortRowView[] = [];
+  const system: PortRowView[] = [];
+
+  for (const port of sortPortRows(ports)) {
+    if (port.source === "system") {
+      system.push(port);
+    } else {
+      relevant.push(port);
+    }
+  }
+
+  return { relevant, system };
+}
+
 function sourceFromProcess(process: ProcessInfo) {
   const context = [process.executable, process.cwd, ...process.command]
     .filter(Boolean)
