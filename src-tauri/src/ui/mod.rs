@@ -172,10 +172,48 @@ fn toggle_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 #[cfg(target_os = "macos")]
+fn sync_popover_chrome(window: &tauri::WebviewWindow, theme: &str) -> Result<(), String> {
+    use tauri::window::Color;
+    use window_vibrancy::clear_vibrancy;
+
+    let _ = clear_vibrancy(window);
+
+    let background = match theme {
+        "light" => Color(245, 245, 247, 255),
+        "dark" => Color(13, 17, 23, 255),
+        other => return Err(format!("unknown theme: {other}")),
+    };
+
+    window
+        .set_background_color(Some(background))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn sync_popover_theme(app: tauri::AppHandle, theme: String) -> Result<(), String> {
+    use tauri::{Manager, Theme};
+
+    let native_theme = match theme.as_str() {
+        "light" => Some(Theme::Light),
+        "dark" => Some(Theme::Dark),
+        other => return Err(format!("unknown theme: {other}")),
+    };
+
+    app.set_theme(native_theme);
+
+    #[cfg(target_os = "macos")]
+    if let Some(window) = app.get_webview_window(POPOVER_LABEL) {
+        sync_popover_chrome(&window, &theme)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn create_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::utils::config::WindowConfig;
     use tauri::{Manager, WebviewWindowBuilder, WindowEvent};
-    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
 
     let config = WindowConfig {
         label: POPOVER_LABEL.to_owned(),
@@ -191,14 +229,6 @@ fn create_popover(app: &tauri::AppHandle) -> tauri::Result<()> {
         ..WindowConfig::default()
     };
     let window = WebviewWindowBuilder::from_config(app, &config)?.build()?;
-    if let Err(error) = apply_vibrancy(
-        &window,
-        NSVisualEffectMaterial::Popover,
-        Some(NSVisualEffectState::Active),
-        Some(12.0),
-    ) {
-        eprintln!("failed to apply Portus popover vibrancy: {error}");
-    }
 
     let app_handle = app.clone();
     let focus_window = window.clone();

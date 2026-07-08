@@ -1,3 +1,5 @@
+import { isTauri } from "@tauri-apps/api/core";
+
 export type Theme = "light" | "dark";
 
 const STORAGE_KEY = "portus:theme";
@@ -17,15 +19,33 @@ export function getTheme(): Theme {
   return readStoredTheme() ?? systemTheme();
 }
 
-export function applyTheme(theme: Theme) {
+export async function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
+  if (!isTauri()) return;
+
+  const { commands } = await import("$lib/bindings");
+  await commands.syncPopoverTheme(theme);
 }
 
 export function setTheme(theme: Theme) {
   localStorage.setItem(STORAGE_KEY, theme);
-  applyTheme(theme);
+  void applyTheme(theme);
 }
 
 export function initTheme() {
-  applyTheme(getTheme());
+  void applyTheme(getTheme());
+}
+
+export function watchSystemTheme() {
+  if (typeof window === "undefined") return () => {};
+
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = () => {
+    if (readStoredTheme() === null) {
+      void applyTheme(systemTheme());
+    }
+  };
+
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
 }

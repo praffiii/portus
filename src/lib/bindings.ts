@@ -23,6 +23,7 @@ export const commands = {
 	unsubscribeLogs: (runId: string) => typedError<null, string>(__TAURI_INVOKE("unsubscribe_logs", { runId })),
 	sendInput: (runId: string, data: string) => typedError<InputStatus, string>(__TAURI_INVOKE("send_input", { runId, data })),
 	saveAsCandidates: (listenerPid: number) => typedError<SaveAsCandidate[], string>(__TAURI_INVOKE("save_as_candidates", { listenerPid })),
+	syncPopoverTheme: (theme: string) => typedError<null, string>(__TAURI_INVOKE("sync_popover_theme", { theme })),
 };
 
 /** Events */
