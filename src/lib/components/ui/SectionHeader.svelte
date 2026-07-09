@@ -4,6 +4,7 @@
 
   let {
     id,
+    controlsId,
     label,
     count,
     collapsible = false,
@@ -12,6 +13,7 @@
     trailing
   }: {
     id: string;
+    controlsId?: string;
     label: string;
     count?: number;
     collapsible?: boolean;
@@ -19,6 +21,8 @@
     ontoggle?: () => void;
     trailing?: Snippet;
   } = $props();
+
+  const panelId = $derived(controlsId ?? id);
 </script>
 
 <div class="section-heading glass-chrome">
@@ -29,15 +33,22 @@
         class:expanded
         type="button"
         aria-expanded={expanded}
-        aria-controls={id}
+        aria-controls={panelId}
         onclick={ontoggle}
       >
         <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
       </button>
-    {/if}
-    <h2 {id}>{label}</h2>
-    {#if count !== undefined}
-      <span class="count">{count}</span>
+      <button class="heading-toggle" type="button" aria-expanded={expanded} aria-controls={panelId} onclick={ontoggle}>
+        <h2 {id}>{label}</h2>
+        {#if count !== undefined}
+          <span class="count">{count}</span>
+        {/if}
+      </button>
+    {:else}
+      <h2 {id}>{label}</h2>
+      {#if count !== undefined}
+        <span class="count">{count}</span>
+      {/if}
     {/if}
   </div>
   {#if trailing}
@@ -67,6 +78,24 @@
     min-width: 0;
     align-items: center;
     gap: 6px;
+  }
+
+  .heading-toggle {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .heading-toggle:hover h2,
+  .heading-toggle:hover .count {
+    color: var(--text-secondary);
   }
 
   .heading-trailing {
@@ -110,10 +139,16 @@
 
   .collapse-btn.expanded :global(svg) {
     transform: rotate(180deg);
+    transition: transform var(--motion-fast);
+  }
+
+  .collapse-btn :global(svg) {
+    transition: transform var(--motion-fast);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .collapse-btn {
+    .collapse-btn,
+    .collapse-btn :global(svg) {
       transition: none;
     }
   }
