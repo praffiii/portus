@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::lifecycle::{classify, line_looks_like_prompt, ExitState, Lifecycle};
 use super::spawn::{InputStatus, SpawnedProcess};
-use crate::logs::ansi::LogBatch;
+use crate::logs::ansi::{sanitize_chunk, LogBatch, LogLine};
 
 const TERMINAL_STATUS_RETENTION: Duration = Duration::from_secs(60);
 
@@ -152,14 +152,27 @@ impl ProjectRegistry {
     }
 
     pub fn subscribe_logs(&mut self, run_id: &str, channel: Channel<LogBatch>) -> bool {
-        let Some(managed) = self.active_run_mut(run_id) else {
+        let Some(managed) = self.managed.iter_mut().find(|m| m.run_id == run_id) else {
             return false;
         };
-        let Some(process) = managed.process.as_ref() else {
-            return false;
-        };
-        process.subscribe_logs(channel);
-        true
+        if let Some(process) = managed.process.as_ref() {
+            process.subscribe_logs(channel);
+            return true;
+        }
+        if is_terminal(managed) {
+            let batch = LogBatch {
+                lines: managed
+                    .terminal_output
+                    .iter()
+                    .map(|line| LogLine {
+                        html: sanitize_chunk(line.as_bytes()),
+                    })
+                    .collect(),
+            };
+            let _ = channel.send(batch);
+            return true;
+        }
+        false
     }
 
     pub fn unsubscribe_logs(&mut self, run_id: &str) -> bool {
@@ -309,6 +322,13 @@ impl ProjectRegistry {
         run_id
     }
 
+    #[cfg(test)]
+    fn set_terminal_output_for_test(&mut self, run_id: &str, lines: Vec<String>) {
+        if let Some(managed) = self.managed.iter_mut().find(|m| m.run_id == run_id) {
+            managed.terminal_output = lines;
+        }
+    }
+
     fn active_run(&self, run_id: &str) -> Option<&ManagedProcess> {
         self.managed
             .iter()
@@ -394,7 +414,43 @@ fn status_for(managed: &ManagedProcess, lifecycle: Lifecycle) -> ManagedStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
     use std::time::Duration;
+    use tauri::ipc::{Channel, InvokeResponseBody};
+
+    #[test]
+    fn subscribe_logs_replays_sanitized_terminal_output() {
+        let mut registry = ProjectRegistry::new(Duration::from_secs(10));
+        let run_id = registry.insert_for_test("p1", "dev", 4242, Duration::from_secs(1));
+        registry.reconcile(|_pid| ExitState::Exited(0), |_pid| None, &[]);
+        registry.set_terminal_output_for_test(
+            &run_id,
+            vec![
+                "plain line".to_string(),
+                "\u{1b}[32m\u{1b}[1m✓\u{1b}[22m\u{1b}[39m Ready in 179ms".to_string(),
+            ],
+        );
+
+        let (tx, rx) = mpsc::channel();
+        assert!(registry.subscribe_logs(
+            &run_id,
+            Channel::new(move |body| {
+                tx.send(body).unwrap();
+                Ok(())
+            }),
+        ));
+
+        let payload = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let InvokeResponseBody::Json(json) = payload else {
+            panic!("expected JSON log batch");
+        };
+        let batch: LogBatch = serde_json::from_str(&json).unwrap();
+        assert_eq!(batch.lines.len(), 2);
+        assert!(batch.lines[0].html.contains("plain line"));
+        assert!(batch.lines[1].html.contains("ansi-fg-green"));
+        assert!(batch.lines[1].html.contains("Ready in 179ms"));
+        assert!(!batch.lines.iter().any(|line| line.html.contains("\u{1b}[")));
+    }
 
     #[test]
     fn reconcile_marks_running_when_a_listener_pid_is_in_the_group() {

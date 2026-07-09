@@ -400,7 +400,7 @@ pub fn subscribe_logs(
     if registry.subscribe_logs(&run_id, channel) {
         Ok(())
     } else {
-        Err("task is not running".to_string())
+        Err("unknown run".to_string())
     }
 }
 
