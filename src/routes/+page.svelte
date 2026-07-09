@@ -317,7 +317,14 @@
       />
       {#if !isEmpty}
         <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
-        <PortList {ports} actionStates={portActionStates} onKill={killPortProcess} onSaveAs={saveAsProject} />
+        <PortList
+          {ports}
+          {projects}
+          {managed}
+          actionStates={portActionStates}
+          onKill={killPortProcess}
+          onSaveAs={saveAsProject}
+        />
         <DockerList {containers} />
       {/if}
     {/if}
