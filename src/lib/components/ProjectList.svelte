@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { ChevronDown, Play, Square } from "@lucide/svelte";
+  import { ChevronDown, Play, Square, Trash2 } from "@lucide/svelte";
   import LogPeek from "$lib/components/LogPeek.svelte";
   import StatusBadge from "$lib/components/StatusBadge.svelte";
   import SectionHeader from "$lib/components/ui/SectionHeader.svelte";
@@ -15,13 +15,15 @@
     managed,
     taskActions,
     onStart,
-    onStop
+    onStop,
+    onRemove = () => {}
   }: {
     projects: Project[];
     managed: ManagedStatus[];
     taskActions: Record<string, TaskActionState>;
     onStart: (projectId: string, taskId: string) => void;
     onStop: (runId: string, projectId: string, taskId: string) => void;
+    onRemove?: (project: Project) => void;
   } = $props();
 
   const OUTPUT_LIMIT = 8;
@@ -99,6 +101,11 @@
     const next = !isProjectExpanded(projectId, project);
     projectExpanded = { ...projectExpanded, [projectId]: next };
   }
+
+  function removeProject(event: MouseEvent, project: Project) {
+    event.stopPropagation();
+    onRemove(project);
+  }
 </script>
 
 {#if projects.length > 0}
@@ -110,25 +117,40 @@
         {@const activeCount = runningCount(project)}
         {@const open = isProjectExpanded(project.id, project)}
         <li class="project-group">
-          <button
-            class="project-header list-row"
-            type="button"
-            aria-expanded={open}
-            onclick={() => toggleProject(project.id, project)}
-          >
-            <span class="project-chevron" class:expanded={open}>
-              <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
-            </span>
-            <div class="project-meta">
-              <span class="row-title" title={project.folder}>{project.name}</span>
-              <span class="folder-basename">{folderBasename(project.folder)}</span>
+          <div class="project-header-row list-row">
+            <button
+              class="project-header"
+              type="button"
+              aria-expanded={open}
+              onclick={() => toggleProject(project.id, project)}
+            >
+              <span class="project-chevron" class:expanded={open}>
+                <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
+              </span>
+              <div class="project-meta">
+                <span class="row-title" title={project.folder}>{project.name}</span>
+                {#if folderBasename(project.folder) !== project.name}
+                  <span class="folder-basename">{folderBasename(project.folder)}</span>
+                {/if}
+              </div>
+              {#if activeCount > 0}
+                <span class="task-badge">{activeCount}/{project.tasks.length}</span>
+              {:else}
+                <span class="task-badge muted">{project.tasks.length}</span>
+              {/if}
+            </button>
+            <div class="row-actions project-actions">
+              <button
+                class="act-btn remove"
+                type="button"
+                title={`Remove ${project.name}`}
+                aria-label={`Remove ${project.name}`}
+                onclick={(event) => removeProject(event, project)}
+              >
+                <Trash2 size={13} strokeWidth={1.9} aria-hidden="true" />
+              </button>
             </div>
-            {#if activeCount > 0}
-              <span class="task-badge">{activeCount}/{project.tasks.length}</span>
-            {:else}
-              <span class="task-badge muted">{project.tasks.length}</span>
-            {/if}
-          </button>
+          </div>
 
           {#if open}
             <ul class="task-list">
@@ -230,13 +252,30 @@
     border-bottom: 0;
   }
 
+  .project-header-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px;
+    align-items: center;
+    padding: 0;
+  }
+
+  .project-header-row::before {
+    display: none;
+  }
+
+  .project-header-row:hover {
+    background: var(--surface-hi);
+  }
+
   .project-header {
     display: grid;
     width: 100%;
+    min-width: 0;
     grid-template-columns: 16px minmax(0, 1fr) auto;
     gap: 8px;
     align-items: center;
-    padding: var(--row-pad-y) var(--row-pad-x);
+    padding: var(--row-pad-y) 0 var(--row-pad-y) var(--row-pad-x);
     border: none;
     border-bottom: 0;
     color: inherit;
@@ -245,12 +284,8 @@
     cursor: pointer;
   }
 
-  .project-header::before {
-    display: none;
-  }
-
-  .project-header:hover {
-    background: var(--surface-hi);
+  .project-actions {
+    padding-right: var(--row-pad-x);
   }
 
   .project-chevron {

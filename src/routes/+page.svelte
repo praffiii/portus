@@ -223,6 +223,17 @@
     return undefined;
   }
 
+  async function removeProject(project: Project) {
+    if (!isTauri()) return;
+    const confirmed = window.confirm(`Remove “${project.name}” from Portus?\n\nThis only unsaves the project here. It does not delete files or stop running processes.`);
+    if (!confirmed) return;
+
+    const result = await commands.removeProject(project.id);
+    if (result.status === "ok") {
+      projects = result.data;
+    }
+  }
+
   function focusQuickRun() {
     settingsOpen = false;
     quickRunComponent?.focusCommand();
@@ -316,7 +327,14 @@
         onSave={saveQuickRun}
       />
       {#if !isEmpty}
-        <ProjectList {projects} {managed} {taskActions} onStart={startTask} onStop={stopTask} />
+        <ProjectList
+          {projects}
+          {managed}
+          {taskActions}
+          onStart={startTask}
+          onStop={stopTask}
+          onRemove={removeProject}
+        />
         <PortList
           {ports}
           {projects}
