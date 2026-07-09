@@ -29,3 +29,6 @@ src-tauri/target/
 .env
 .env.*
 !.env.example
+
+# Local brainstorm / agent scratch
+.superpowers/

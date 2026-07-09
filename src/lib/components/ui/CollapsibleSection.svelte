@@ -10,6 +10,7 @@
     count,
     defaultExpanded = true,
     persist = true,
+    trailing,
     children
   }: {
     id: string;
@@ -17,6 +18,7 @@
     count?: number;
     defaultExpanded?: boolean;
     persist?: boolean;
+    trailing?: Snippet;
     children: Snippet;
   } = $props();
 
@@ -54,11 +56,13 @@
 <section class="list-section" aria-labelledby="{id}-heading">
   <SectionHeader
     id="{id}-heading"
+    controlsId={id}
     {label}
     {count}
     collapsible
     {expanded}
     ontoggle={toggle}
+    {trailing}
   />
   {#if expanded}
     <div id={id}>

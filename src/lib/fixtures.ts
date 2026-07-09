@@ -6,7 +6,12 @@ export const snapshotFixture: Snapshot = {
     data: [
       portRow(3000, 18420, "web", "/Applications/Visual Studio Code.app/web"),
       portRow(8080, 18704, "api", "/Applications/Terminal.app/api"),
-      portRow(5432, 612, "postgres", "/opt/homebrew/bin/postgres")
+      portRow(5432, 612, "postgres", "/opt/homebrew/bin/postgres"),
+      portRow(57921, 23437, "Cursor Helper", "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper"),
+      portRow(57922, 23437, "Cursor Helper", "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper"),
+      portRow(57923, 23437, "Cursor Helper", "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper"),
+      portRow(57926, 23437, "Cursor Helper", "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper"),
+      portRow(57929, 23437, "Cursor Helper", "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper")
     ]
   },
   processes: {
@@ -14,7 +19,15 @@ export const snapshotFixture: Snapshot = {
     data: [
       processFixture(18420, "web", 2.4, 148, "~/code/portus-web", "/Applications/Visual Studio Code.app/web"),
       processFixture(18704, "api", 0.8, 92, "~/code/portus-api", "/Applications/Terminal.app/api"),
-      processFixture(612, "postgres", 0.1, 76, "/opt/homebrew/var/postgresql@16", "/opt/homebrew/bin/postgres")
+      processFixture(612, "postgres", 0.1, 76, "/opt/homebrew/var/postgresql@16", "/opt/homebrew/bin/postgres"),
+      processFixture(
+        23437,
+        "Cursor Helper",
+        0.2,
+        130,
+        "/",
+        "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper"
+      )
     ]
   },
   docker: {
