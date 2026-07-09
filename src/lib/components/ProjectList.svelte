@@ -26,7 +26,6 @@
     onRemove?: (project: Project) => void;
   } = $props();
 
-  const OUTPUT_LIMIT = 8;
   let expanded: Record<string, boolean> = $state({});
   let projectExpanded: Record<string, boolean> = $state({});
 
@@ -58,9 +57,8 @@
     return typeof action === "object" && action.kind === "failed";
   }
 
-  function recentLines(status: ManagedStatus | undefined): string[] {
-    if (!status || (status.lifecycle !== "exited" && status.lifecycle !== "crashed")) return [];
-    return status.recent_output.slice(-OUTPUT_LIMIT);
+  function isTerminalLifecycle(lifecycle: Lifecycle): boolean {
+    return lifecycle === "exited" || lifecycle === "crashed";
   }
 
   function isActiveLifecycle(lifecycle: Lifecycle): boolean {
@@ -157,8 +155,8 @@
               {#each project.tasks as task (task.id)}
                 {@const status = statusFor(project.id, task.id)}
                 {@const action = taskActions[taskKey(project.id, task.id)]}
-                {@const output = recentLines(status)}
                 {@const key = taskKey(project.id, task.id)}
+                {@const terminal = status ? isTerminalLifecycle(status.lifecycle) : false}
                 <li class="list-row task-row">
                   <div class="row-grid">
                     <StatusBadge status={status ? badgeFor(status.lifecycle) : "stopped"} />
@@ -181,7 +179,7 @@
                       </div>
                     </div>
                     <div class="row-actions">
-                      {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                      {#if status}
                         <button
                           class="act-btn"
                           class:expanded={expanded[key]}
@@ -193,7 +191,7 @@
                           <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
                         </button>
                       {/if}
-                      {#if status && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                      {#if status && !terminal}
                         <button
                           class="act-btn kill"
                           type="button"
@@ -221,16 +219,13 @@
                   {#if isFailed(action)}
                     <p class="row-error">{action.message}</p>
                   {/if}
-                  {#if output.length > 0}
-                    <pre class="recent-output" aria-label={`Recent output for ${task.name}`}>{output.join("\n")}</pre>
-                  {/if}
-                  {#if status && expanded[key] && status.lifecycle !== "exited" && status.lifecycle !== "crashed"}
+                  {#if status && expanded[key]}
                     <LogPeek
                       runId={status.run_id}
                       projectId={project.id}
                       taskId={task.id}
-                      readonly={false}
-                      terminal={false}
+                      readonly={terminal}
+                      terminal={terminal}
                     />
                   {/if}
                 </li>

@@ -351,25 +351,6 @@ button {
   color: var(--waiting);
 }
 
-.recent-output {
-  max-height: 92px;
-  overflow: auto;
-  margin: 8px 0 0 24px;
-  padding: 7px 8px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  background: var(--surface);
-  backdrop-filter: var(--glass-blur-chrome);
-  -webkit-backdrop-filter: var(--glass-blur-chrome);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .list-row,
   .row-actions,

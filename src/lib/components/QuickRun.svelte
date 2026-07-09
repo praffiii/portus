@@ -23,7 +23,6 @@
   } = $props();
 
   const CHOOSE_FOLDER = "__choose_folder__";
-  const OUTPUT_LIMIT = 8;
 
   let command = $state("");
   let cwd = $state("~");
@@ -86,11 +85,6 @@
     action: (typeof rowActions)[string] | undefined
   ): action is { kind: "failed"; message: string } {
     return typeof action === "object" && action.kind === "failed";
-  }
-
-  function recentLines(status: ManagedStatus): string[] {
-    if (!isTerminal(status.lifecycle)) return [];
-    return status.recent_output.slice(-OUTPUT_LIMIT);
   }
 
   function toggle(runId: string) {
@@ -205,7 +199,7 @@
     <ul>
       {#each quickRuns as status (status.run_id)}
         {@const action = rowActions[status.run_id]}
-        {@const output = recentLines(status)}
+        {@const terminal = isTerminal(status.lifecycle)}
         <li class="list-row quick-run-row">
           <div class="row-grid">
             <StatusBadge status={badgeFor(status.lifecycle)} />
@@ -220,17 +214,17 @@
               </div>
             </div>
             <div class="row-actions">
-              {#if !isTerminal(status.lifecycle)}
-                <button
-                  class="act-btn"
-                  class:expanded={expanded[status.run_id]}
-                  type="button"
-                  title={`${expanded[status.run_id] ? "Hide" : "Show"} output`}
-                  aria-label={`${expanded[status.run_id] ? "Hide" : "Show"} quick-run output`}
-                  onclick={() => toggle(status.run_id)}
-                >
-                  <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
-                </button>
+              <button
+                class="act-btn"
+                class:expanded={expanded[status.run_id]}
+                type="button"
+                title={`${expanded[status.run_id] ? "Hide" : "Show"} output`}
+                aria-label={`${expanded[status.run_id] ? "Hide" : "Show"} quick-run output`}
+                onclick={() => toggle(status.run_id)}
+              >
+                <ChevronDown size={13} strokeWidth={2.1} aria-hidden="true" />
+              </button>
+              {#if !terminal}
                 <button
                   class="act-btn kill"
                   type="button"
@@ -257,11 +251,8 @@
           {#if isFailed(action)}
             <p class="row-error">{action.message}</p>
           {/if}
-          {#if output.length > 0}
-            <pre class="recent-output" aria-label="Recent quick-run output">{output.join("\n")}</pre>
-          {/if}
-          {#if expanded[status.run_id] && !isTerminal(status.lifecycle)}
-            <LogPeek runId={status.run_id} readonly={false} terminal={false} />
+          {#if expanded[status.run_id]}
+            <LogPeek runId={status.run_id} readonly={terminal} terminal={terminal} />
           {/if}
         </li>
       {/each}
