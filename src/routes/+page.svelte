@@ -1,13 +1,12 @@
 <script lang="ts">
   import { isTauri } from "@tauri-apps/api/core";
-  import { Anchor, FolderOpen, Play, Plus, Settings } from "@lucide/svelte";
+  import { Anchor, FolderOpen, Plus, Settings } from "@lucide/svelte";
   import { onMount } from "svelte";
 
   import { commands, events, type Project, type Snapshot } from "$lib/bindings";
   import DockerList from "$lib/components/DockerList.svelte";
   import PortList, { type PortActionState } from "$lib/components/PortList.svelte";
   import ProjectList, { type TaskActionState } from "$lib/components/ProjectList.svelte";
-  import QuickRun from "$lib/components/QuickRun.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import IconButton from "$lib/components/ui/IconButton.svelte";
   import { snapshotFixture } from "$lib/fixtures";
@@ -20,7 +19,6 @@
   let projects: Project[] = $state([]);
   let portActionStates: Record<string, PortActionState> = $state({});
   let taskActions: Record<string, TaskActionState> = $state({});
-  let quickRunComponent: QuickRun | undefined = $state();
   let settingsOpen = $state(false);
   const managed = $derived(snapshot.managed);
   const ports = $derived(snapshotToPortRows(snapshot));
@@ -201,28 +199,6 @@
     }
   }
 
-  async function startQuickRun(command: string, cwd: string): Promise<string | undefined> {
-    if (!isTauri()) return "Quick-run is available in the app";
-    const result = await commands.startQuickRun(command, cwd);
-    if (result.status === "error") return result.error;
-    return undefined;
-  }
-
-  async function stopQuickRun(runId: string): Promise<string | undefined> {
-    if (!isTauri()) return "Quick-run is available in the app";
-    const result = await commands.stopTask(runId);
-    if (result.status === "error") return result.error;
-    return undefined;
-  }
-
-  async function saveQuickRun(runId: string): Promise<string | undefined> {
-    if (!isTauri()) return "Quick-run is available in the app";
-    const result = await commands.saveQuickRunAsProject(runId);
-    if (result.status === "error") return result.error;
-    projects = result.data;
-    return undefined;
-  }
-
   async function removeProject(project: Project) {
     if (!isTauri()) return;
     const confirmed = window.confirm(`Remove “${project.name}” from Portus?\n\nThis only unsaves the project here. It does not delete files or stop running processes.`);
@@ -232,11 +208,6 @@
     if (result.status === "ok") {
       projects = result.data;
     }
-  }
-
-  function focusQuickRun() {
-    settingsOpen = false;
-    quickRunComponent?.focusCommand();
   }
 
   function toggleSettings() {
@@ -274,8 +245,10 @@
       <Anchor class="brand-mark" size={18} strokeWidth={1.75} aria-hidden="true" />
       <p class="summary">
         <span class="running">{runningCount} running</span>
-        <span class="sep" aria-hidden="true">·</span>
-        <span class="neutral">{waitingCount} waiting?</span>
+        {#if waitingCount > 0}
+          <span class="sep" aria-hidden="true">·</span>
+          <span class="neutral">{waitingCount} waiting?</span>
+        {/if}
       </p>
     </div>
     <div class="glance-actions">
@@ -304,28 +277,16 @@
           </div>
           <div class="empty-copy">
             <h2 id="empty-heading">Nothing running</h2>
-            <p>Open a folder or run a one-off command.</p>
+            <p>Open a folder to start a project task.</p>
           </div>
           <div class="empty-actions">
             <button class="empty-action primary" type="button" onclick={addProjectFromFolder}>
               <FolderOpen size={13} strokeWidth={1.9} aria-hidden="true" />
               <span>Open folder</span>
             </button>
-            <button class="empty-action" type="button" onclick={focusQuickRun}>
-              <Play size={12} strokeWidth={2.2} fill="currentColor" aria-hidden="true" />
-              <span>Quick-run</span>
-            </button>
           </div>
         </section>
       {/if}
-      <QuickRun
-        bind:this={quickRunComponent}
-        {projects}
-        {managed}
-        onRun={startQuickRun}
-        onStop={stopQuickRun}
-        onSave={saveQuickRun}
-      />
       {#if !isEmpty}
         <ProjectList
           {projects}
