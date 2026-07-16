@@ -10,20 +10,6 @@ Portus lives in your menu bar and shows you everything listening on your machine
 
 ---
 
-## What's in v0.2 beta
-
-- **See** every TCP listener: port, process name, PID, CPU, memory, and where it came from (`docker` / `system` / `from IDE` / `from Terminal` / `orphan?`)
-- **Kill** any process directly from the popover
-- **Projects** — open a folder, save tasks, start/stop your own dev services from the menu bar
-- **Live logs** — LogPeek streams managed task output and Docker container logs (ANSI cleaned)
-- **Docker** — see containers alongside ports; expand a row to tail logs
-- **Ports, project-first** — group listeners under saved projects; unsave when you no longer need them
-- **Appearance** — light / dark / system, matched to macOS
-- **Deduped rows** — dual-stack and `SO_REUSEPORT` processes collapse into one stable row
-- **Native feel** — vibrancy popover, redesigned layout, no Electron
-
----
-
 ## Install
 
 Grab the `.dmg` from the [latest release](../../releases/latest). The build is ad-hoc signed but not notarized — on first launch macOS will block it:
